@@ -1,0 +1,30 @@
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Font families */
+.font-lora {
+  font-family: 'Lora', serif;
+}
+
+.font-inter {
+  font-family: 'Inter', sans-serif;
+}
+
+.font-outfit {
+  font-family: 'Outfit', sans-serif;
+}
+
+.font-source-sans {
+  font-family: 'Source Sans 3', sans-serif;
+}
+
+.font-instrument-serif {
+  font-family: 'Instrument Serif', serif;
+}
