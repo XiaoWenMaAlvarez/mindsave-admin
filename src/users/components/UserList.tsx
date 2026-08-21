@@ -1,7 +1,7 @@
-import type { User } from "../interfaces/user.interface";
+import type { UserResponse } from "../interfaces/UserResponse.interface";
 
 interface Props {
-  users: User[];
+  users: UserResponse[];
 }
 
 
@@ -10,7 +10,7 @@ const UserList = ({ users }: Props) => {
   if (users.length === 0) {
     return (
       <div>
-        <h1>Cargando usuarios...</h1>
+        <h1>No hay usuarios</h1>
       </div>
     )
   }

@@ -1,25 +1,25 @@
-import { useEffect, useState, type KeyboardEvent } from "react"
+import { useRef, type KeyboardEvent } from "react"
+import { useSearchParams } from "react-router";
 
+const SearchBar = () => {
 
-interface Props {
-  onQuery: (query: string) => void;
-  placeholder?: string;
-}
-
-const SearchBar = ({ onQuery, placeholder = 'Buscar... ' }: Props) => {
-
-  const [query, setQuery] = useState("");
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      onQuery(query);
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [query, onQuery]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSearch = () => {
-    onQuery(query);
-  }
+    const value = inputRef.current?.value ?? "";
+    const query = value.trim().toLowerCase();
+
+    setSearchParams((prev) => {
+      if (query) {
+        prev.set("query", query);
+      } else {
+        prev.delete("query");
+      }
+      prev.set("page", "1");
+      return prev;
+    });
+  };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if(event.key === "Enter") {
@@ -30,11 +30,11 @@ const SearchBar = ({ onQuery, placeholder = 'Buscar... ' }: Props) => {
   return (
       <div>
         <input
+        ref={inputRef}
         type="text"
-        placeholder={placeholder}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Buscar por nombre o email"
         onKeyDown={handleKeyDown}
+        defaultValue={searchParams.get("query") ?? ""}
         />
         <button onClick={handleSearch}>Buscar</button>
       </div>
