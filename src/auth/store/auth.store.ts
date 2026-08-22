@@ -3,6 +3,7 @@ import { create } from 'zustand';
 
 import { loginAction } from '../actions/login.action';
 import { checkAuthAction } from '../actions/check-auth.action';
+import { handleError } from '@/api/mindsave.backend';
 
 type AuthStatus = 'authenticated' | 'not-authenticated' | 'checking';
 
@@ -35,10 +36,9 @@ export const useAuthStore = create<AuthState>()((set) => ({
       set({ user: user, token: data.token, authStatus: 'authenticated' });
       return true;
     } catch (error) {
-      console.log(error)
       localStorage.removeItem('token');
       set({ user: null, token: null, authStatus: 'not-authenticated' });
-      return false;
+      handleError(error);
     }
   },
 
@@ -62,8 +62,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
         authStatus: 'authenticated',
       });
       return true;
-    } catch (error) {
-      console.log(error)
+    } catch {
       set({
         user: null,
         token: null,

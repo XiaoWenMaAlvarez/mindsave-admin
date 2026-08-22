@@ -18,4 +18,20 @@ mindsaveAPI.interceptors.request.use((config) => {
   return config;
 });
 
-//TODO: Función para centralizaar errores
+export const handleError = (error: Error, messageDefault?: string) => {
+  const DEFAULT_MESSAGE = messageDefault || "Error al realizar la petición a Mindsave";
+  if (axios.isAxiosError(error)) {
+    const responseData = error.response?.data;
+    const message = responseData?.error || responseData?.message || error.message || DEFAULT_MESSAGE;
+    
+    throw new Error(
+      Array.isArray(message)
+        ? message.join(", ")
+        : typeof message === "string"
+        ? message
+        : JSON.stringify(message),
+      { cause: error }
+    );
+  }
+  throw new Error(DEFAULT_MESSAGE, { cause: error });
+}

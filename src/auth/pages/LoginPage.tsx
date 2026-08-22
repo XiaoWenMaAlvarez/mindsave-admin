@@ -24,15 +24,17 @@ export const LoginPage = () => {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
 
-    const isValid = await login(email, password);
-
-    if (isValid) {
-      navigate('/');
-      return;
+    try {
+      const isValid = await login(email, password);
+      if (isValid) {
+        navigate('/');
+        return;
+      }
+    } catch (error) {
+      toast.error(error?.cause?.message || 'Error al iniciar sesión');
+    } finally {
+      setIsPosting(false);
     }
-
-    toast.error('Correo o/y contraseña no validos');
-    setIsPosting(false);
   }
 
   return (
