@@ -27,5 +27,11 @@ export const getAllUsersByPageAction = async (params: GetAllUsersByPageParams): 
     return data;
   } catch (error) {
     handleError(error as Error, "Error al obtener los usuarios");
+    return {
+      results: [],
+      totalPages: 1,
+      page: 1,
+      limit: 0
+    }
   }
 }

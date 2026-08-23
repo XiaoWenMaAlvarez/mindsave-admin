@@ -1,11 +1,17 @@
+import { useNavigate } from "react-router";
 import type { UserResponse } from "../interfaces/UserResponse.interface";
+import { DeleteUserButton } from "./DeleteUserButton";
+import { RestoreUserButton } from "./RestoreUserButton";
+import { useAuthStore } from "@/auth/store/auth.store";
 
 interface Props {
   users: UserResponse[];
 }
 
-
 const UserList = ({ users }: Props) => {
+
+  const navigate = useNavigate()
+  const { user } = useAuthStore();
 
   if (users.length === 0) {
     return (
@@ -15,8 +21,11 @@ const UserList = ({ users }: Props) => {
     )
   }
 
+  users = users.filter(userData => userData.id !== user?.id)
+
   return (
     <div>
+      <button onClick={() => navigate(`/new-user`)} className="bg-green-500 text-white p-2 rounded disabled:bg-gray-400">Crear usuario</button>
       <table className="">
         <thead>
           <tr>
@@ -25,6 +34,9 @@ const UserList = ({ users }: Props) => {
             <th>Rol</th>
             <th>Estado</th>
             <th>Estado del correo</th>
+            <th>Editar</th>
+            <th>Eliminar</th>
+            <th>Restaurar</th>
           </tr>
         </thead>
         <tbody>
@@ -35,6 +47,9 @@ const UserList = ({ users }: Props) => {
               <td>{user.role}</td>
               <td>{user.isActive ? "Activo" : "Inactivo"}</td>
               <td>{user.emailVerified ? "Verificado" : "No verificado"}</td>
+              <td><button onClick={() => navigate(`/users/${user.id}`)} className="bg-blue-500 text-white p-2 rounded disabled:bg-gray-400">Editar</button></td>
+              <td><DeleteUserButton userId= {user.id} userName={user.name}  isActive={user.isActive}/></td>
+              <td><RestoreUserButton userId= {user.id} userName={user.name} isActive={user.isActive} /></td>
             </tr>
           ))}
         </tbody>
