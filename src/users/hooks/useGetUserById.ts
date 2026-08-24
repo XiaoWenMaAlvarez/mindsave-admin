@@ -11,7 +11,7 @@ export const useGetUserById = (id: string) => {
     queryFn: () => getUserByIdAction(id),
     retry: false,
     staleTime: 1000 * 60 * 5,
-    enabled: !!id
+    enabled: !!id,
   });
 
   const mutation = useMutation({

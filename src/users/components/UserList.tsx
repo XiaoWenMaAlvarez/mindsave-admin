@@ -25,7 +25,6 @@ const UserList = ({ users }: Props) => {
 
   return (
     <div>
-      <button onClick={() => navigate(`/new-user`)} className="bg-green-500 text-white p-2 rounded disabled:bg-gray-400">Crear usuario</button>
       <table className="">
         <thead>
           <tr>

@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router";
-import { HomePage, UsersPage, UserPage } from "@/users/pages/init.js";
+import { HomePage, UsersPage, UserPage, NewUserPage } from "@/users/pages/init.js";
 import UsersLayout from "@/users/layout/UsersLayout.js";
 import {LoginPage} from "@/auth/pages/LoginPage.jsx";
 import { AuthenticatedRoute, NotAuthenticatedRoute } from "@/components/routes/ProtectedRoutes.js";
@@ -24,6 +24,10 @@ export const appRouter = createBrowserRouter([
       {
         path: "users/:id",
         element: <UserPage />,
+      },
+      {
+        path: "new-user",
+        element: <NewUserPage />,
       },
     ],
   },
