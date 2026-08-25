@@ -13,6 +13,8 @@ const UserList = ({ users }: Props) => {
   const navigate = useNavigate()
   const { user } = useAuthStore();
 
+  const idUserAuth = user!.id
+
   if (users.length === 0) {
     return (
       <div>
@@ -20,8 +22,6 @@ const UserList = ({ users }: Props) => {
       </div>
     )
   }
-
-  users = users.filter(userData => userData.id !== user?.id)
 
   return (
     <div>
@@ -47,8 +47,12 @@ const UserList = ({ users }: Props) => {
               <td>{user.isActive ? "Activo" : "Inactivo"}</td>
               <td>{user.emailVerified ? "Verificado" : "No verificado"}</td>
               <td><button onClick={() => navigate(`/users/${user.id}`)} className="bg-blue-500 text-white p-2 rounded disabled:bg-gray-400">Editar</button></td>
-              <td><DeleteUserButton userId= {user.id} userName={user.name}  isActive={user.isActive}/></td>
-              <td><RestoreUserButton userId= {user.id} userName={user.name} isActive={user.isActive} /></td>
+              {idUserAuth !== user.id && (
+                <>
+                  <td><DeleteUserButton userId= {user.id} userName={user.name}  isActive={user.isActive}/></td>
+                  <td><RestoreUserButton userId= {user.id} userName={user.name} isActive={user.isActive} /></td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>

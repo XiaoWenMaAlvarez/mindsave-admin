@@ -29,7 +29,6 @@ const NewUserPage = () => {
 
   return (
     <div>
-      <h1>New User</h1>
       <button onClick={goBack} className="bg-gray-500 text-white p-2 rounded">Volver</button>
       <UserCreateForm 
       isPending={mutation.isPending} 
