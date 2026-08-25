@@ -1,107 +1,69 @@
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, MoreHorizontal } from 'lucide-react';
-import { Button } from '../../components/ui/button';
-import { useSearchParams } from 'react-router';
-import { getPaginationItems } from '../utils/pagination';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, MoreHorizontal } from "lucide-react";
+import { useSearchParams } from "react-router";
 
-interface Props {
+import { Button } from "@/components/ui/button";
+import { getPaginationItems } from "../utils/pagination";
+
+interface CustomPaginationProps {
   totalPages: number;
 }
 
-export const CustomPagination = ({ totalPages }: Props) => {
+export const CustomPagination = ({ totalPages }: CustomPaginationProps) => {
   const [searchParams, setSearchParams] = useSearchParams();
-
-  const queryPage = searchParams.get('page') ?? '1';
-  const rawPage = isNaN(Number(queryPage)) ? 1 : Number(queryPage);
+  const queryPage = searchParams.get("page") ?? "1";
+  const rawPage = Number.isNaN(Number(queryPage)) ? 1 : Number(queryPage);
   const page = Math.max(1, Math.min(rawPage, Math.max(1, totalPages)));
 
-  if (totalPages <= 0) return null;
+  if (totalPages <= 1) return null;
 
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage > totalPages || newPage === page) return;
-    setSearchParams((prev) => {
-      prev.set('page', newPage.toString());
-      return prev;
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("page", String(newPage));
+      return next;
     });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const paginationItems = getPaginationItems(page, totalPages);
-
   return (
-    <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-2 my-4">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={page === 1}
-        onClick={() => handlePageChange(1)}
-        title="Primera página"
-        aria-label="Primera página"
-      >
-        <ChevronsLeft className="h-4 w-4" />
-        <span className="hidden sm:inline">Primera</span>
+    <nav className="mt-6 flex flex-wrap items-center justify-center gap-1.5" aria-label="Paginación de usuarios">
+      <Button variant="outline" size="sm" disabled={page === 1} onClick={() => handlePageChange(1)} aria-label="Primera página">
+        <ChevronsLeft />
+        <span className="hidden md:inline">Primera</span>
       </Button>
-
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={page === 1}
-        onClick={() => handlePageChange(page - 1)}
-        title="Página anterior"
-        aria-label="Página anterior"
-      >
-        <ChevronLeft className="h-4 w-4" />
+      <Button variant="outline" size="sm" disabled={page === 1} onClick={() => handlePageChange(page - 1)} aria-label="Página anterior">
+        <ChevronLeft />
         <span className="hidden sm:inline">Anterior</span>
       </Button>
 
-      {paginationItems.map((item, index) => {
-        if (item === 'ellipsis-left' || item === 'ellipsis-right') {
-          return (
-            <span
-              key={`${item}-${index}`}
-              className="flex h-7 w-7 items-center justify-center text-muted-foreground select-none"
-              aria-hidden="true"
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </span>
-          );
-        }
-
-        return (
+      {getPaginationItems(page, totalPages).map((item, index) =>
+        typeof item === "number" ? (
           <Button
             key={item}
-            variant={page === item ? 'default' : 'outline'}
-            size="sm"
-            className="min-w-7 sm:min-w-8"
-            aria-current={page === item ? 'page' : undefined}
+            variant={item === page ? "default" : "outline"}
+            size="icon-sm"
             onClick={() => handlePageChange(item)}
+            aria-current={item === page ? "page" : undefined}
+            aria-label={`Página ${item}`}
           >
             {item}
           </Button>
-        );
-      })}
+        ) : (
+          <span key={`${item}-${index}`} className="flex size-8 items-center justify-center text-[#4a7070]" aria-hidden="true">
+            <MoreHorizontal className="size-4" />
+          </span>
+        ),
+      )}
 
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={page === totalPages}
-        onClick={() => handlePageChange(page + 1)}
-        title="Página siguiente"
-        aria-label="Página siguiente"
-      >
+      <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => handlePageChange(page + 1)} aria-label="Página siguiente">
         <span className="hidden sm:inline">Siguiente</span>
-        <ChevronRight className="h-4 w-4" />
+        <ChevronRight />
       </Button>
-
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={page === totalPages}
-        onClick={() => handlePageChange(totalPages)}
-        title="Última página"
-        aria-label="Última página"
-      >
-        <span className="hidden sm:inline">Última</span>
-        <ChevronsRight className="h-4 w-4" />
+      <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => handlePageChange(totalPages)} aria-label="Última página">
+        <span className="hidden md:inline">Última</span>
+        <ChevronsRight />
       </Button>
-    </div>
+    </nav>
   );
 };

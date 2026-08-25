@@ -3,5 +3,5 @@ export interface NewUser {
   name: string,
   password: string,
   emailVerified: boolean,
-  role: "PROFESIONAL_ROL" | "USER_ROLE",
+  role: "PROFESIONAL_ROL" | "USER_ROL",
 }

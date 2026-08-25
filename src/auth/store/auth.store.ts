@@ -38,7 +38,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     } catch (error) {
       localStorage.removeItem('token');
       set({ user: null, token: null, authStatus: 'not-authenticated' });
-      handleError(error);
+      return handleError(error);
     }
   },
 

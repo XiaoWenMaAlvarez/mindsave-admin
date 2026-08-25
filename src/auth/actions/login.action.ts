@@ -6,6 +6,6 @@ export const loginAction = async (email: string, password: string) : Promise<Log
     const { data } = await mindsaveAPI.post<LoginResponse>("/auth/login", { email, password });
     return data;
   } catch (error) {
-    handleError(error as Error, "Error al iniciar sesión");
+    return handleError(error, "Error al iniciar sesión");
   }
 }

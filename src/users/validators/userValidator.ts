@@ -6,7 +6,7 @@ const UserSchema = z.object({
   name: z.string(),
   password: z.string(),
   emailVerified: z.boolean(),
-  role: z.enum(["PROFESIONAL_ROL", "USER_ROLE"]),
+  role: z.enum(["PROFESIONAL_ROL", "USER_ROL"]),
   isActive: z.boolean()
 })
 

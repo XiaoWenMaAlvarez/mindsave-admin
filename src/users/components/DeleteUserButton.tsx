@@ -1,45 +1,66 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { deleteUserAction } from "../actions/deleteUser.action";
-import { useAuthStore } from "@/auth/store/auth.store";
+import { useCallback, useState } from "react";
+import { LoaderCircle, ShieldCheck, Trash2 } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-interface Props {
-  userId: string, 
-  userName: string,
-  isActive: boolean
+import { useAuthStore } from "@/auth/store/auth.store";
+import ConfirmDialog from "@/components/shared/ConfirmDialog";
+import { Button } from "@/components/ui/button";
+import { deleteUserAction } from "../actions/deleteUser.action";
+
+interface DeleteUserButtonProps {
+  isActive: boolean;
+  userId: string;
+  userName: string;
 }
 
-export const DeleteUserButton = ({userId, userName, isActive }: Props ) => {
+export const DeleteUserButton = ({ userId, userName, isActive }: DeleteUserButtonProps) => {
+  const [isOpen, setIsOpen] = useState(false);
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  const isCurrentUser = user?.id === userId;
+  const closeDialog = useCallback(() => setIsOpen(false), []);
 
-  const { mutate, isPending, isError, error } = useMutation({
-    mutationFn: (id: string) => deleteUserAction(id),
-
+  const mutation = useMutation({
+    mutationFn: deleteUserAction,
     onSuccess: () => {
-      queryClient.invalidateQueries({queryKey: ["users"]})
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success("Usuario desactivado", { description: `${userName} ya no puede acceder a la plataforma.` });
+      closeDialog();
     },
-
-    onError: (err) => {
-      alert(`Error al eliminar usuario : ${err.message}`)
-    }
+    onError: (error) => {
+      toast.error("No pudimos desactivar el usuario", { description: error.message });
+    },
   });
 
-  const handleDeleteUser = () => {
-    if(confirm(`¿Seguro que desea eliminar al usuario: ${userName}?`)) {
-      if(user!.id !== userId) mutate(userId);
-    }
-  }
-  
+  const disabled = mutation.isPending || !isActive || isCurrentUser;
+  const label = isCurrentUser ? "Protegido" : mutation.isPending ? "Eliminando…" : "Eliminar";
+
   return (
-    <div>
-      <button
-      onClick={handleDeleteUser}
-      disabled={isPending || !isActive}
-      className="bg-red-500 text-white p-2 rounded disabled:bg-gray-400"
+    <>
+      <Button
+        type="button"
+        variant="destructive"
+        size="xs"
+        disabled={disabled}
+        onClick={() => setIsOpen(true)}
+        title={isCurrentUser ? "No puedes eliminar tu propia cuenta" : undefined}
+        aria-label={`${label} a ${userName}`}
       >
-        {isPending ? "Eliminando..." : "Eliminar"}
-      </button>
-      { isError && <p className="text-red-500">{(error as Error).message ?? "Error al intentar eliminar usuario"}</p>}
-    </div>
-  )
-}
+        {mutation.isPending ? <LoaderCircle className="animate-spin" /> : isCurrentUser ? <ShieldCheck /> : <Trash2 />}
+        {label}
+      </Button>
+
+      {isOpen && (
+        <ConfirmDialog
+          title="Desactivar usuario"
+          description={`¿Seguro que deseas desactivar a ${userName}? La cuenta podrá restaurarse más adelante.`}
+          confirmLabel="Desactivar"
+          isPending={mutation.isPending}
+          onCancel={closeDialog}
+          onConfirm={() => mutation.mutate(userId)}
+        />
+      )}
+    </>
+  );
+};

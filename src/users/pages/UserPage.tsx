@@ -1,49 +1,45 @@
 import { useNavigate, useParams } from "react-router";
-import { useGetUserById } from "@/users/hooks/useGetUserById"
-import LoadingPage from '@/components/shared/LoadingPage';
-import ErrorPage from "@/components/shared/ErrorPage";
-import UserEditForm from "../components/UserEditForm";
-import type { UserResponse } from "../interfaces/UserResponse.interface";
 import { toast } from "sonner";
 
+import ErrorPage from "@/components/shared/ErrorPage";
+import LoadingPage from "@/components/shared/LoadingPage";
+import UserEditForm from "../components/UserEditForm";
+import { useGetUserById } from "../hooks/useGetUserById";
+import type { UserResponse } from "../interfaces/UserResponse.interface";
 
 const UserPage = () => {
-  const { id } = useParams()
-  const navigate = useNavigate()
+  const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const { data: user, isLoading, isError, error, mutation } = useGetUserById(id);
 
-  const { data: user, isLoading, isError, error, mutation } = useGetUserById(id || "");
+  if (isLoading) return <LoadingPage message="Cargando los datos del usuario" />;
+  if (isError || !user) return <ErrorPage error={error?.message ?? "Error al cargar al usuario"} />;
 
-  if (isLoading) return <LoadingPage />
-
-  if (isError || !user) return <ErrorPage error={error?.message || "Error al cargar al usuario"} />
-
-  const { email, name, password, emailVerified, role } = user;
-
-  const onSubmit = async (userEdit: Partial<UserResponse>): Promise<void> => {
-    userEdit.id = id;
-    await mutation.mutateAsync(userEdit, {
-      onSuccess: (id) => {
-        toast.success("Usuario editado con éxito", {position: "top-right"});
-        navigate(`/users/${id}`);
+  const onSubmit = async (userEdit: Partial<UserResponse>) => {
+    await mutation.mutateAsync(
+      { ...userEdit, id },
+      {
+        onSuccess: () => {
+          toast.success("Cambios guardados", { description: `${userEdit.name ?? user.name} fue actualizado correctamente.` });
+          navigate("/users");
+        },
+        onError: (mutationError) => {
+          toast.error("No pudimos editar el usuario", { description: mutationError.message });
+        },
       },
-      onError: (error) => {
-        toast.error(`Error al editar usuario: ${error.message}`)
-      }
-    })
-  }
+    );
+  };
 
   return (
-    <div>
-      <UserEditForm 
-      email={email} 
-      name={name} 
-      password={password} 
-      emailVerified={emailVerified} 
-      role={role} 
-      isPending={mutation.isPending} 
-      onSubmit={onSubmit } />
-    </div>
-  )
-}
+    <UserEditForm
+      email={user.email}
+      name={user.name}
+      emailVerified={user.emailVerified}
+      role={user.role}
+      isPending={mutation.isPending}
+      onSubmit={onSubmit}
+    />
+  );
+};
 
 export default UserPage;

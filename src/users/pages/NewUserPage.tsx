@@ -1,40 +1,27 @@
-
 import { useNavigate } from "react-router";
-import type { NewUser } from "../interfaces/NewUser.interface";
 import { toast } from "sonner";
+
+import UserCreateForm from "../components/UserCreateForm";
 import { useCreateUser } from "../hooks/useCreateUser";
-import UserCreateForm from "../components/UserCreateForm.";
+import type { NewUser } from "../interfaces/NewUser.interface";
 
 const NewUserPage = () => {
-
   const mutation = useCreateUser();
-
   const navigate = useNavigate();
 
-  const goBack = () => {
-    navigate(`/users`)
-  }
-
-  const onSubmit = async (newUser: NewUser): Promise<void> => {
+  const onSubmit = async (newUser: NewUser) => {
     await mutation.mutateAsync(newUser, {
       onSuccess: () => {
-        toast.success("Usuario creado con éxito", {position: "top-right"});
-        goBack();
+        toast.success("Usuario creado", { description: `${newUser.name} fue registrado correctamente.` });
+        navigate("/users");
       },
       onError: (error) => {
-        toast.error(`Error al crear usuario: ${error.message}`)
-      }
-    })
-  }
+        toast.error("No pudimos crear el usuario", { description: error.message });
+      },
+    });
+  };
 
-  return (
-    <div>
-      <button onClick={goBack} className="bg-gray-500 text-white p-2 rounded">Volver</button>
-      <UserCreateForm 
-      isPending={mutation.isPending} 
-      onSubmit={onSubmit} />
-    </div>
-  )
-}
+  return <UserCreateForm isPending={mutation.isPending} onSubmit={onSubmit} />;
+};
 
 export default NewUserPage;

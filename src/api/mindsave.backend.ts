@@ -18,7 +18,7 @@ mindsaveAPI.interceptors.request.use((config) => {
   return config;
 });
 
-export const handleError = (error: Error, messageDefault?: string) => {
+export const handleError = (error: unknown, messageDefault?: string): never => {
   const DEFAULT_MESSAGE = messageDefault || "Error al realizar la petición a Mindsave";
   if (axios.isAxiosError(error)) {
     const responseData = error.response?.data;
@@ -33,5 +33,6 @@ export const handleError = (error: Error, messageDefault?: string) => {
       { cause: error }
     );
   }
-  throw new Error(DEFAULT_MESSAGE, { cause: error });
+  const message = error instanceof Error && error.message ? error.message : DEFAULT_MESSAGE;
+  throw new Error(message, { cause: error });
 }
