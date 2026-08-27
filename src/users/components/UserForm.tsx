@@ -1,11 +1,13 @@
 import { ArrowLeft, Check, Mail, Plus, Save, X } from "lucide-react";
 import { useForm, useWatch } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { createUserSchema, editUserSchema } from "../validators/userValidator";
 
 export interface UserFormValues {
   email: string;
@@ -24,12 +26,17 @@ interface UserFormProps {
 
 const UserForm = ({ defaultValues, isPending, mode, onSubmit }: UserFormProps) => {
   const isEdit = mode === "edit";
+  const schema = isEdit ? editUserSchema : createUserSchema;
+
   const {
     control,
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<UserFormValues>({ defaultValues });
+  } = useForm<UserFormValues>({
+    resolver: zodResolver(schema),
+    defaultValues,
+  });
 
   const emailVerified = useWatch({
     control,
@@ -78,11 +85,7 @@ const UserForm = ({ defaultValues, isPending, mode, onSubmit }: UserFormProps) =
                   placeholder="Nombre del usuario"
                   aria-invalid={Boolean(errors.name)}
                   disabled={isPending}
-                  {...register("name", {
-                    required: "El nombre es requerido.",
-                    minLength: { value: 2, message: "Ingresa al menos 2 caracteres." },
-                    maxLength: { value: 30, message: "El nombre no puede superar 30 caracteres." },
-                  })}
+                  {...register("name")}
                 />
               </FormField>
 
@@ -91,7 +94,7 @@ const UserForm = ({ defaultValues, isPending, mode, onSubmit }: UserFormProps) =
                   id="role"
                   className="h-12 w-full rounded-xl border border-input bg-[#0a1a1a] px-4 text-[0.9375rem] text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/15 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={isPending}
-                  {...register("role", { required: "Selecciona un rol." })}
+                  {...register("role")}
                 >
                   <option value="USER_ROL">Usuario</option>
                   <option value="PROFESIONAL_ROL">Administrador</option>
@@ -106,13 +109,7 @@ const UserForm = ({ defaultValues, isPending, mode, onSubmit }: UserFormProps) =
                   placeholder="correo@ejemplo.com"
                   aria-invalid={Boolean(errors.email)}
                   disabled={isPending}
-                  {...register("email", {
-                    required: "El correo es requerido.",
-                    pattern: {
-                      value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                      message: "Ingresa un correo válido.",
-                    },
-                  })}
+                  {...register("email")}
                 />
               </FormField>
 
@@ -121,17 +118,10 @@ const UserForm = ({ defaultValues, isPending, mode, onSubmit }: UserFormProps) =
                   id="password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder={isEdit ? "Dejar en blanco para no cambiar" : "Contraseña"}
+                  placeholder={isEdit ? "Dejar en blanco para no cambiar" : "Contraseña (mínimo 6 caracteres)"}
                   aria-invalid={Boolean(errors.password)}
                   disabled={isPending}
-                  {...register("password", {
-                    validate: (value) => {
-                      if (isEdit && value.length === 0) return true;
-                      if (value.length < 4) return "La contraseña debe tener al menos 4 caracteres.";
-                      if (value.length > 20) return "La contraseña no puede superar 20 caracteres.";
-                      return true;
-                    },
-                  })}
+                  {...register("password")}
                 />
               </FormField>
 
