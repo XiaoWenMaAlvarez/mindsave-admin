@@ -25,6 +25,7 @@ export const RestoreUserButton = ({ userId, userName, isActive }: RestoreUserBut
     mutationFn: restoreUserAction,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["user", { id: userId }] });
       toast.success("Usuario restaurado", { description: `${userName} puede volver a acceder a la plataforma.` });
       closeDialog();
     },

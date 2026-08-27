@@ -25,6 +25,7 @@ export const DeleteUserButton = ({ userId, userName, isActive }: DeleteUserButto
     mutationFn: deleteUserAction,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["user", { id: userId }] });
       toast.success("Usuario desactivado", { description: `${userName} ya no puede acceder a la plataforma.` });
       closeDialog();
     },
