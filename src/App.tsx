@@ -1,15 +1,14 @@
 import type { PropsWithChildren } from "react";
 import { AlertCircle, CheckCircle2, Info, LoaderCircle, TriangleAlert } from "lucide-react";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { RouterProvider } from "react-router";
 import { Toaster } from "sonner";
 
 import { useAuthStore } from "@/auth/store/auth.store";
 import LoadingPage from "@/components/shared/LoadingPage";
+import { queryClient } from "@/lib/queryClient";
 import { appRouter } from "@/router/app.router";
-
-const queryClient = new QueryClient();
 
 const CheckAuthProvider = ({ children }: PropsWithChildren) => {
   const { checkAuthStatus } = useAuthStore();

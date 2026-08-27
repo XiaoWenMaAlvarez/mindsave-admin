@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { loginAction } from '../actions/login.action';
 import { checkAuthAction } from '../actions/check-auth.action';
 import { handleError } from '@/api/mindsave.backend';
+import { queryClient } from '@/lib/queryClient';
 
 type AuthStatus = 'authenticated' | 'not-authenticated' | 'checking';
 
@@ -26,17 +27,19 @@ export const useAuthStore = create<AuthState>()((set) => ({
     try {
       const data = await loginAction(email, password);
       if (data.role !== "PROFESIONAL_ROL") return false;
+      queryClient.clear();
       const user = {
         id: data.id,
         email: data.email,
         name: data.name,
         role: data.role
-      }
+      };
       localStorage.setItem('token', data.token);
       set({ user: user, token: data.token, authStatus: 'authenticated' });
       return true;
     } catch (error) {
       localStorage.removeItem('token');
+      queryClient.clear();
       set({ user: null, token: null, authStatus: 'not-authenticated' });
       return handleError(error);
     }
@@ -44,18 +47,30 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
   logout: () => {
     localStorage.removeItem('token');
+    queryClient.clear();
     set({ user: null, token: null, authStatus: 'not-authenticated' });
   },
 
   checkAuthStatus: async () => {
     try {
       const data = await checkAuthAction();
+      if (data.role !== "PROFESIONAL_ROL") {
+        localStorage.removeItem('token');
+        queryClient.clear();
+        set({
+          user: null,
+          token: null,
+          authStatus: 'not-authenticated',
+        });
+        return false;
+      }
+
       const user = {
         id: data.id,
         email: data.email,
         name: data.name,
         role: data.role
-      }
+      };
       set({
         user: user,
         token: data.token,
@@ -63,6 +78,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
       });
       return true;
     } catch {
+      localStorage.removeItem('token');
+      queryClient.clear();
       set({
         user: null,
         token: null,
