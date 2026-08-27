@@ -3,7 +3,8 @@ import { create } from 'zustand';
 
 import { loginAction } from '../actions/login.action';
 import { checkAuthAction } from '../actions/check-auth.action';
-import { handleError } from '@/api/mindsave.backend';
+import axios from 'axios';
+import { handleError, registerUnauthorizedHandler } from '@/api/mindsave.backend';
 import { queryClient } from '@/lib/queryClient';
 
 type AuthStatus = 'authenticated' | 'not-authenticated' | 'checking';
@@ -18,7 +19,7 @@ type AuthState = {
   checkAuthStatus: () => Promise<boolean>;
 };
 
-export const useAuthStore = create<AuthState>()((set) => ({
+export const useAuthStore = create<AuthState>()((set, get) => ({
   user: null,
   token: null,
   authStatus: 'checking',
@@ -52,6 +53,16 @@ export const useAuthStore = create<AuthState>()((set) => ({
   },
 
   checkAuthStatus: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      set({
+        user: null,
+        token: null,
+        authStatus: 'not-authenticated',
+      });
+      return false;
+    }
+
     try {
       const data = await checkAuthAction();
       if (data.role !== "PROFESIONAL_ROL") {
@@ -77,15 +88,35 @@ export const useAuthStore = create<AuthState>()((set) => ({
         authStatus: 'authenticated',
       });
       return true;
-    } catch {
-      localStorage.removeItem('token');
-      queryClient.clear();
-      set({
-        user: null,
-        token: null,
-        authStatus: 'not-authenticated',
-      });
+    } catch (error) {
+      const cause = error instanceof Error && error.cause ? error.cause : error;
+      const isAuthError =
+        (axios.isAxiosError(cause) && (cause.response?.status === 401 || cause.response?.status === 403)) ||
+        (error instanceof Error && (error.message === 'Token expired or not valid' || error.message === 'No token found'));
+
+      if (isAuthError) {
+        localStorage.removeItem('token');
+        queryClient.clear();
+        set({
+          user: null,
+          token: null,
+          authStatus: 'not-authenticated',
+        });
+        return false;
+      }
+
+      // Si es un error de conectividad o del servidor, no destruimos la sesión ni borramos el token
+      if (get().authStatus === 'checking') {
+        set({
+          authStatus: 'not-authenticated',
+        });
+      }
       return false;
     }
   },
 }));
+
+registerUnauthorizedHandler(() => {
+  useAuthStore.getState().logout();
+});
+

@@ -1,5 +1,7 @@
 import axios from "axios";
 
+import { queryClient } from "@/lib/queryClient";
+
 const BASE_URL = import.meta.env.VITE_API_URL;
 
 export const mindsaveAPI = axios.create({
@@ -9,6 +11,12 @@ export const mindsaveAPI = axios.create({
   }
 })
 
+let onUnauthorizedCallback: (() => void) | null = null;
+
+export const registerUnauthorizedHandler = (handler: () => void) => {
+  onUnauthorizedCallback = handler;
+};
+
 mindsaveAPI.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -17,6 +25,27 @@ mindsaveAPI.interceptors.request.use((config) => {
 
   return config;
 });
+
+mindsaveAPI.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (axios.isAxiosError(error) && error.response) {
+      const { status } = error.response;
+      const url = error.config?.url || "";
+      const isLoginRequest = url.includes("/auth/login");
+
+      if ((status === 401 || status === 403) && !isLoginRequest) {
+        if (onUnauthorizedCallback) {
+          onUnauthorizedCallback();
+        } else {
+          localStorage.removeItem('token');
+          queryClient.clear();
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const handleError = (error: unknown, messageDefault?: string): never => {
   const DEFAULT_MESSAGE = messageDefault || "Error al realizar la petición a Mindsave";
@@ -35,4 +64,4 @@ export const handleError = (error: unknown, messageDefault?: string): never => {
   }
   const message = error instanceof Error && error.message ? error.message : DEFAULT_MESSAGE;
   throw new Error(message, { cause: error });
-}
+};
