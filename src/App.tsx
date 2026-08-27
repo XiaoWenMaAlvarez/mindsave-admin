@@ -2,13 +2,12 @@ import type { PropsWithChildren } from "react";
 import { AlertCircle, CheckCircle2, Info, LoaderCircle, TriangleAlert } from "lucide-react";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { RouterProvider } from "react-router";
 import { Toaster } from "sonner";
 
 import { useAuthStore } from "@/auth/store/auth.store";
 import LoadingPage from "@/components/shared/LoadingPage";
 import { queryClient } from "@/lib/queryClient";
-import { appRouter } from "@/router/app.router";
+import { AppRouter } from "@/router/app.router";
 
 const CheckAuthProvider = ({ children }: PropsWithChildren) => {
   const { checkAuthStatus } = useAuthStore();
@@ -55,7 +54,7 @@ const App = () => (
       }}
     />
     <CheckAuthProvider>
-      <RouterProvider router={appRouter} />
+      <AppRouter />
     </CheckAuthProvider>
     <ReactQueryDevtools initialIsOpen={false} />
   </QueryClientProvider>

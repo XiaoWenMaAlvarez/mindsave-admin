@@ -1,11 +1,9 @@
 import { mindsaveAPI, handleError } from "../../api/mindsave.backend";
 
-export const deleteUserAction = async (id: string): Promise<null> => {
+export const deleteUserAction = async (id: string): Promise<void> => {
   try {
     await mindsaveAPI.delete(`/user/${id}`);
-    return null
   } catch (error) {
-    handleError(error as Error, "Error al intenbtar eliminar al usuario");
-    return null
+    return handleError(error, "Error al intentar eliminar al usuario");
   }
-}
+};

@@ -14,6 +14,9 @@ interface ConfirmDialogProps {
   variant?: "danger" | "success";
 }
 
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 const ConfirmDialog = ({
   confirmLabel = "Aceptar",
   description,
@@ -25,18 +28,56 @@ const ConfirmDialog = ({
 }: ConfirmDialogProps) => {
   const titleId = useId();
   const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const isDanger = variant === "danger";
 
   useEffect(() => {
+    previousActiveElementRef.current = document.activeElement as HTMLElement | null;
     cancelButtonRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isPending) onCancel();
+      if (event.key === "Escape" && !isPending) {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+
+      if (event.key === "Tab") {
+        if (!dialogRef.current) return;
+
+        const focusableElements = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS),
+        ).filter((el) => el.offsetParent !== null || el.offsetWidth > 0 || el.offsetHeight > 0);
+
+        if (focusableElements.length === 0) {
+          event.preventDefault();
+          return;
+        }
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey) {
+          if (document.activeElement === firstElement || !dialogRef.current.contains(document.activeElement)) {
+            event.preventDefault();
+            lastElement.focus();
+          }
+        } else {
+          if (document.activeElement === lastElement || !dialogRef.current.contains(document.activeElement)) {
+            event.preventDefault();
+            firstElement.focus();
+          }
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previousActiveElementRef.current?.focus();
+    };
   }, [isPending, onCancel]);
 
   return (
@@ -47,6 +88,7 @@ const ConfirmDialog = ({
       }}
     >
       <div
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
