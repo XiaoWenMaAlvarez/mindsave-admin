@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
     "coverage": "vitest run --coverage"
   },
   "dependencies": {

@@ -1,1310 +1,1490 @@
-# Especificación funcional y técnica de MindSave Admin
+# Especificación funcional y técnica AS-IS de MindSave Admin
 
 ## 1. Identificación del documento
 
 | Campo | Valor |
 |---|---|
 | Sistema | MindSave Admin |
-| Tipo de sistema | Aplicación web de página única (SPA) ejecutada en navegador |
-| Repositorio analizado | mindsave-admin |
-| Fecha de análisis | 25 de agosto de 2026 |
-| Alcance | Todo el código fuente, configuración, estilos, contratos TypeScript y pruebas presentes en este repositorio |
-| Propósito | Servir como fuente verificable para casos de uso extendidos, diagramas UML y documentación de arquitectura |
+| Repositorio | `mindsave-admin` |
+| Tipo de producto | Aplicación web de página única (SPA) ejecutada en navegador |
+| Idioma de la interfaz | Español |
+| Fecha de análisis | 27 de agosto de 2026 |
+| Estado descrito | Implementación AS-IS presente en el repositorio |
+| Alcance analizado | Código fuente, rutas, estado, contratos HTTP, componentes, estilos, configuración y pruebas del frontend |
+| Propósito | Fuente de información para casos de uso extendidos, diagramas UML y documentación de arquitectura |
 
-## 2. Propósito y criterio de lectura
+## 2. Propósito y criterio de esta especificación
 
-Este documento describe qué funcionalidades ofrece el frontend administrativo de MindSave y cómo están implementadas. No documenta un sistema backend completo porque dicho backend no forma parte del repositorio. En particular:
+Este documento describe las funcionalidades que el frontend administrativo de MindSave ofrece actualmente y la forma concreta en que las implementa. La descripción se deriva del código presente en el repositorio y no de una propuesta futura del producto.
 
-- las rutas HTTP, cuerpos y respuestas se describen únicamente según lo que consume o envía este cliente;
-- no se presuponen tablas de base de datos, algoritmos del servidor, códigos HTTP específicos ni reglas de autorización internas del backend;
-- cuando la interfaz interpreta un borrado como desactivación lógica, se identifica expresamente como una interpretación del cliente;
-- las diferencias entre las reglas declaradas del proyecto y el comportamiento efectivo del código se registran como brechas.
+El repositorio contiene exclusivamente el cliente web administrativo. La persistencia de las cuentas, la comprobación de credenciales, la emisión y validación de tokens y la ejecución definitiva de las operaciones sobre usuarios corresponden a una API externa. Por ello, el contrato de esa API se documenta desde la perspectiva del consumidor: rutas, parámetros, cuerpos y respuestas que el frontend usa explícitamente.
 
-La palabra “usuario” tiene dos significados en el sistema:
+En el documento se distinguen dos usos de la palabra «usuario»:
 
-1. **Administrador autenticado:** persona que opera el panel.
-2. **Cuenta gestionada:** registro que el administrador consulta o modifica. Puede tener rol de administrador o de usuario común.
+1. **Administrador autenticado:** persona que opera MindSave Admin y cuya sesión contiene el rol literal `PROFESIONAL_ROL`.
+2. **Cuenta gestionada:** registro consultado o modificado desde el panel. Puede tener rol `PROFESIONAL_ROL` o `USER_ROL`.
 
-## 3. Definición concreta del sistema
+## 3. Definición funcional del sistema
 
-MindSave Admin es un cliente web en español que permite:
+MindSave Admin permite a un administrador:
 
-- autenticar a un operador mediante correo y contraseña;
-- mantener y revalidar una sesión basada en token Bearer;
-- restringir las rutas del panel según el estado local de autenticación;
-- mostrar una pantalla de inicio para el administrador autenticado;
-- consultar una lista paginada de cuentas;
-- buscar cuentas por nombre o correo;
-- filtrar cuentas por rol, estado activo y verificación de correo;
-- crear cuentas;
-- consultar el detalle de una cuenta para editarla;
-- editar nombre, rol, correo, contraseña y estado de verificación de correo;
-- desactivar una cuenta, previa confirmación;
-- restaurar una cuenta, previa confirmación;
+- iniciar sesión con correo y contraseña;
+- mantener una sesión local basada en un token Bearer;
+- revalidar y renovar la sesión al arrancar la aplicación, al recuperar el foco y de forma periódica;
+- cerrar la sesión local;
+- acceder a una pantalla de inicio con accesos a las operaciones principales;
+- consultar un listado paginado de cuentas;
+- buscar cuentas por nombre o correo según el criterio presentado por la interfaz;
+- filtrar cuentas por rol, actividad y verificación de correo;
+- conservar búsqueda, filtros, límite y página en la URL;
+- crear una cuenta con nombre, rol, correo, contraseña y estado de verificación del correo;
+- consultar el detalle de una cuenta;
+- editar nombre, rol, correo, contraseña y verificación del correo;
+- conservar la contraseña existente al editar si el campo de contraseña queda vacío;
+- desactivar una cuenta activa después de una confirmación;
+- restaurar una cuenta inactiva después de una confirmación;
 - impedir desde la interfaz que el administrador desactive o restaure su propia cuenta;
-- comunicar cargas, errores, operaciones pendientes y resultados mediante páginas de estado, diálogos y notificaciones.
+- impedir desde la interfaz que el administrador cambie su propia cuenta a `USER_ROL`;
+- impedir desde la interfaz que el administrador marque su propio correo como no verificado;
+- recibir estados visuales de carga, vacío, error, operación pendiente, éxito y fallo.
 
-El repositorio solo contiene el frontend. Toda persistencia de usuarios, comprobación de credenciales, emisión de tokens y aplicación definitiva de cambios depende de una API externa cuya URL base se configura mediante la variable de entorno **VITE_API_URL**.
+## 4. Actores y colaboradores
 
-## 4. Actores y sistemas externos
-
-### 4.1. Actor humano
+### 4.1. Actor humano principal
 
 #### Administrador
 
-Es el único actor humano directo. Inicia sesión, navega por el panel y gestiona cuentas. La interfaz traduce el rol literal **PROFESIONAL_ROL** como “Administrador”.
+Es la persona que interactúa directamente con la SPA. Para que el frontend establezca una sesión autenticada, la respuesta de autenticación o revalidación debe contener el rol exacto `PROFESIONAL_ROL`. La interfaz representa este literal con la etiqueta «Administrador».
 
-La intención de negocio del proyecto es permitir acceso administrativo exclusivamente a ese rol. La comprobación se realiza durante el login, pero no durante la revalidación de una sesión existente; esta diferencia se detalla en la sección de brechas.
+El administrador puede gestionar tanto cuentas con rol administrativo como cuentas con rol de usuario común. Su identidad local contiene `id`, `email`, `name` y `role`.
 
-#### Usuario común
+### 4.2. Cuenta con rol de usuario común
 
-Una cuenta con rol **USER_ROL** no tiene un flujo propio dentro de esta aplicación. Puede aparecer como entidad gestionada y puede ser creada o editada por un administrador. Si intenta iniciar sesión directamente, el frontend rechaza el acceso aunque la API haya validado sus credenciales.
+Una cuenta con rol `USER_ROL` aparece como objeto de gestión dentro del panel. La interfaz la etiqueta como «Usuario». El flujo de login del frontend no establece una sesión administrativa para una respuesta con este rol.
 
-### 4.2. Sistemas colaboradores
+### 4.3. Colaboradores técnicos
 
-| Colaborador | Responsabilidad observada |
+| Colaborador | Participación en el sistema |
 |---|---|
-| API administrativa de MindSave | Autenticar, validar/renovar sesiones y ejecutar operaciones CRUD/lifecycle sobre cuentas |
-| Navegador | Ejecutar la SPA, mantener la URL y almacenar el token en localStorage |
-| Google Fonts | Proveer Lora e Inter mediante recursos remotos |
-| React Query Devtools | Facilitar inspección de caché en ejecución; se monta incluso en la aplicación construida |
+| API administrativa de MindSave | Autentica, revalida sesiones y procesa las operaciones de consulta y mantenimiento de cuentas |
+| Navegador | Ejecuta la SPA, conserva la URL, mantiene `localStorage` y aporta la hora local para el saludo |
+| `localStorage` | Persiste el token bajo la clave exacta `token` |
+| Google Fonts | Entrega fuentes web declaradas por la aplicación |
+| TanStack Query | Coordina consultas, mutaciones, caché e invalidación de datos remotos |
+| Zustand | Mantiene el estado global de autenticación en memoria |
+| React Router | Resuelve rutas, parámetros, redirecciones y estado de búsqueda en la URL |
+| Axios | Implementa el cliente HTTP y sus interceptores |
+| Sonner | Presenta notificaciones transitorias de resultado |
 
 ## 5. Catálogo de funcionalidades
 
-| ID | Funcionalidad | Ruta visible | Operación principal | Resultado |
-|---|---|---|---|---|
-| F-01 | Comprobar sesión al iniciar | Todas | GET /auth/check-status | Establece sesión autenticada o no autenticada |
-| F-02 | Iniciar sesión | /login | POST /auth/login | Guarda token y abre el panel si el rol es admitido |
-| F-03 | Cerrar sesión | Rutas privadas | Operación local | Elimina token y bloquea las rutas privadas |
-| F-04 | Consultar inicio administrativo | / | Sin HTTP propio | Presenta accesos a gestión y creación |
-| F-05 | Listar usuarios | /users | GET /user | Presenta tabla o tarjetas según el viewport |
-| F-06 | Buscar usuarios | /users?query=... | GET /user con query | Reduce el listado según criterio enviado al backend |
-| F-07 | Filtrar usuarios | /users con parámetros | GET /user con filtros | Filtra por correo, rol y estado |
-| F-08 | Paginar usuarios | /users?page=... | GET /user con page y limit | Cambia la página conservando el resto de la URL |
-| F-09 | Crear usuario | /new-user | POST /user | Registra una cuenta y vuelve al listado |
-| F-10 | Cargar detalle | /users/:id | GET /user/:id | Obtiene valores iniciales del formulario de edición |
-| F-11 | Editar usuario | /users/:id | PUT /user/:id | Actualiza la cuenta y vuelve al listado |
-| F-12 | Desactivar usuario | /users | DELETE /user/:id | Marca la cuenta como no disponible según la semántica de la UI |
-| F-13 | Restaurar usuario | /users | PUT /user/restore-user/:id | Recupera el acceso de una cuenta inactiva |
-
-## 6. Reglas funcionales y de negocio observadas
-
-| ID | Regla | Implementación |
-|---|---|---|
-| RN-01 | El rol administrativo reconocido es exactamente PROFESIONAL_ROL. | Unión literal de TypeScript y comparación en auth.store.ts |
-| RN-02 | El otro rol reconocido es exactamente USER_ROL. | Contratos de autenticación y usuario |
-| RN-03 | El token se conserva con la clave exacta token en localStorage. | auth.store.ts y check-auth.action.ts |
-| RN-04 | Toda solicitud realizada con mindsaveAPI incorpora Authorization: Bearer TOKEN si existe token. | Interceptor de Axios |
-| RN-05 | La URL efectiva de la API es VITE_API_URL seguida de /admin. | mindsave.backend.ts |
-| RN-06 | Una respuesta correcta de check-status reemplaza el token almacenado por el token renovado. | checkAuthAction |
-| RN-07 | Un fallo de check-status elimina el token y deja la sesión como no autenticada. | checkAuthAction y auth.store.ts |
-| RN-08 | El login solo completa la sesión si la respuesta tiene rol PROFESIONAL_ROL. | Método login del store |
-| RN-09 | Las rutas /, /users, /users/:id y /new-user exigen estado authenticated. | AuthenticatedRoute |
-| RN-10 | /login solo se muestra en estado not-authenticated. | NotAuthenticatedRoute |
-| RN-11 | El administrador no puede desactivar ni restaurar su propia cuenta desde el listado. | Comparación entre ID autenticado e ID de la fila |
-| RN-12 | Desactivar y restaurar requieren confirmación explícita. | ConfirmDialog |
-| RN-13 | Una contraseña vacía durante la edición significa conservar la contraseña actual. | UserEditForm elimina password del payload |
-| RN-14 | Cambiar búsqueda o filtros reinicia page a 1. | SearchBar y UserFilters |
-| RN-15 | Los cambios de búsqueda, filtros y paginación preservan parámetros de URL no relacionados. | Copia mediante new URLSearchParams(previous) |
-| RN-16 | Una creación o edición exitosa vuelve a /users. | NewUserPage y UserPage |
-| RN-17 | Las acciones visibles bloquean sus controles mientras la mutación está pendiente. | isPending en formularios, botones y diálogo |
-| RN-18 | El listado vacío no se trata como error. | UserList muestra un estado vacío específico |
-| RN-19 | Los valores de filtro enviados al backend son literales predeterminados. | rol, state y emailVerify en UserFilters |
-
-### 6.1. Literales de filtros
-
-| Parámetro | Significado visual | Valor enviado |
-|---|---|---|
-| rol | Administrador | PROFESIONAL_ROL |
-| rol | Usuario | USER_ROL |
-| state | Activos | active |
-| state | Inactivos | inactive |
-| emailVerify | Verificado | verify |
-| emailVerify | No verificado | unverify |
-
-## 7. Casos de uso detallados
-
-### CU-01. Inicializar y revalidar la sesión
-
-**Actor principal:** navegador.
-
-**Colaboradores:** store de autenticación, TanStack Query y API MindSave.
-
-**Disparador:** montaje de la aplicación o refetch programado de la query de autenticación.
-
-**Precondiciones:** la SPA fue cargada.
-
-**Flujo principal:**
-
-1. App crea un único QueryClient a nivel de módulo.
-2. CheckAuthProvider ejecuta una query con clave **["auth"]**.
-3. El store llama a checkAuthAction.
-4. La action busca la clave **token** en localStorage.
-5. El interceptor añade el token como Bearer a GET /auth/check-status.
-6. La API devuelve id, email, name, role y un token.
-7. La action reemplaza el token de localStorage por el token de la respuesta.
-8. El store construye el usuario autenticado sin incluir el token dentro del objeto user.
-9. El store establece authStatus en authenticated.
-10. El router puede mostrar la ruta solicitada.
-
-**Alternativa A — no existe token:**
-
-1. checkAuthAction lanza “No token found”.
-2. El store captura el fallo.
-3. user y token pasan a null.
-4. authStatus pasa a not-authenticated.
-5. Una ruta privada redirige a /login.
-
-**Alternativa B — token rechazado o error de red:**
-
-1. checkAuthAction elimina la clave token.
-2. Lanza el error genérico “Token expired or not valid”, conservando el error original como causa.
-3. El store deja la sesión como no autenticada.
-
-**Frecuencia de revalidación:**
-
-- al montar la aplicación;
-- cada 1,5 horas mediante refetchInterval;
-- al recuperar el foco de la ventana mediante refetchOnWindowFocus;
-- sin reintento automático de la query.
-
-**Estado visible:** mientras la consulta inicial carga, se presenta LoadingPage con el mensaje “Comprobando tu sesión”.
-
-Las revalidaciones posteriores son de fondo: CheckAuthProvider observa isLoading, no isFetching, por lo que no reemplaza la vista completa mientras se renueva una sesión ya consultada. Además, checkAuthStatus captura sus propios fallos y devuelve false; para React Query ese resultado es una resolución correcta, no un estado isError.
-
-**Postcondición de éxito:** token renovado y sesión local autenticada.
-
-**Observación crítica:** este flujo no verifica que role sea PROFESIONAL_ROL.
-
-### CU-02. Iniciar sesión
-
-**Actor principal:** administrador.
-
-**Ruta:** /login.
-
-**Precondiciones:** authStatus es not-authenticated; si ya es authenticated, la ruta redirige a /.
-
-**Entradas:** email y password, ambos obligatorios mediante validación HTML nativa.
-
-**Flujo principal:**
-
-1. El administrador completa correo y contraseña.
-2. El formulario deshabilita sus inputs y botón al comenzar el envío.
-3. LoginPage obtiene valores mediante FormData.
-4. El store ejecuta loginAction(email, password).
-5. La action envía POST /auth/login con ambos campos.
-6. El store verifica que role sea exactamente PROFESIONAL_ROL.
-7. El token devuelto se guarda en localStorage.
-8. Se guarda user con id, email, name y role.
-9. authStatus cambia a authenticated.
-10. Se muestra el toast “Sesión iniciada”.
-11. La navegación cambia a /.
-
-**Alternativa A — credenciales válidas pero rol no administrativo:**
-
-1. El store devuelve false.
-2. No guarda el token recibido ni actualiza la sesión.
-3. LoginPage muestra “Acceso no autorizado”.
-4. El usuario permanece en /login.
-
-**Alternativa B — error HTTP o de transporte:**
-
-1. handleError normaliza el mensaje.
-2. El store elimina cualquier token local y establece not-authenticated.
-3. El error se propaga a LoginPage.
-4. Se muestra el toast “No pudimos iniciar sesión”.
-
-**Postcondición de éxito:** sesión autenticada y token disponible para solicitudes posteriores.
-
-**Protección contra doble envío:** isPosting deshabilita controles hasta finalizar.
-
-### CU-03. Cerrar sesión
-
-**Actor principal:** administrador autenticado.
-
-**Disparador:** botón “Cerrar sesión” del encabezado.
-
-**Flujo:**
-
-1. El store elimina token de localStorage.
-2. user y token pasan a null.
-3. authStatus pasa a not-authenticated.
-4. Se muestra el toast “Sesión cerrada”.
-5. Al reevaluarse la guarda de la ruta privada, el router redirige a /login.
-
-**Comunicación externa:** ninguna. El frontend no invoca un endpoint de cierre o revocación.
-
-**Postcondición:** el navegador ya no conserva la credencial local.
-
-### CU-04. Consultar la pantalla de inicio
-
-**Actor principal:** administrador autenticado.
-
-**Ruta:** /.
-
-**Flujo:**
-
-1. HomePage obtiene el usuario del store.
-2. Calcula “Buenos días”, “Buenas tardes” o “Buenas noches” con la hora local del navegador.
-3. Presenta el nombre del usuario; usa “Administrador” como respaldo si no existe.
-4. Ofrece acceso a “Gestionar usuarios” y “Crear usuario”.
-
-**Comunicación externa:** no realiza solicitudes propias.
-
-### CU-05. Consultar el listado de usuarios
-
-**Actor principal:** administrador autenticado.
-
-**Ruta:** /users.
-
-**Precondición:** acceso permitido por AuthenticatedRoute.
-
-**Flujo principal:**
-
-1. useGetUsers lee page, limit, query, rol, state y emailVerify desde la URL.
-2. Convierte page y limit a número.
-3. Sustituye page inválida o menor que 1 por 1.
-4. Sustituye limit inválido o menor que 1 por 10.
-5. Omite los filtros vacíos del objeto de parámetros HTTP.
-6. Ejecuta GET /user con los parámetros efectivos.
-7. Guarda el resultado bajo la clave de caché **["users", { page, limit, query, rol, state, emailVerify }]**.
-8. UsersPage presenta encabezado, acción de alta, buscador, filtros, lista y paginación.
-9. UserList muestra:
-   - tabla desde el breakpoint lg;
-   - tarjetas por debajo de lg.
-10. Para cada cuenta muestra nombre, correo, rol, actividad, verificación de correo y acciones disponibles.
-
-**Alternativa A — carga inicial:** LoadingPage muestra “Cargando usuarios”.
-
-**Alternativa B — error:** ErrorPage presenta el mensaje normalizado, “Reintentar” mediante recarga completa e “Ir al inicio”.
-
-**Alternativa C — lista sin resultados:** se muestra “No encontramos usuarios”, sin considerar el resultado un error.
-
-**Datos esperados:** results, totalPages, page y limit.
-
-### CU-06. Buscar usuarios
-
-**Actor principal:** administrador autenticado.
-
-**Precondición:** vista /users cargada.
-
-**Entrada:** texto libre destinado a nombre o correo según la etiqueta de la interfaz.
-
-**Flujo:**
-
-1. El administrador escribe en el campo de búsqueda.
-2. Envía el formulario.
-3. El cliente aplica trim y transforma el texto a minúsculas.
-4. Si el resultado no está vacío, escribe query en la URL; si está vacío, elimina query.
-5. Establece page=1.
-6. Conserva limit y los filtros existentes.
-7. El cambio de clave de React Query dispara una nueva consulta de listado.
-
-**Flujo de limpieza:**
-
-1. El botón de limpieza aparece solo si la URL ya contiene un query no vacío.
-2. Limpia el campo, elimina query, restablece page=1 y devuelve el foco al input.
-
-**Límite del contrato:** el criterio real de coincidencia lo implementa el backend; el frontend solo rotula la función como búsqueda por nombre o correo.
-
-### CU-07. Filtrar usuarios
-
-**Actor principal:** administrador autenticado.
-
-**Filtros disponibles:**
-
-- estado del correo: todos, verify o unverify;
-- rol: todos, PROFESIONAL_ROL o USER_ROL;
-- estado de cuenta: todos, active o inactive.
-
-**Flujo:**
-
-1. El administrador cambia un selector.
-2. El valor no vacío se escribe en su parámetro de URL; “Todos” elimina el parámetro.
-3. page se establece en 1.
-4. Se conservan query, limit y los otros filtros.
-5. React Query solicita el nuevo conjunto.
-
-**Limpieza conjunta:**
-
-1. “Limpiar filtros” aparece cuando alguno de los tres filtros está activo.
-2. El botón elimina emailVerify, rol y state.
-3. Conserva query y limit.
-4. Restablece page=1.
-
-### CU-08. Paginar usuarios
-
-**Actor principal:** administrador autenticado.
-
-**Precondición:** totalPages es mayor que 1.
-
-**Flujo:**
-
-1. CustomPagination lee page desde la URL.
-2. Para la presentación, limita la página al rango 1..totalPages.
-3. Genera números visibles y elipsis mediante getPaginationItems.
-4. Permite ir a primera, anterior, una página específica, siguiente o última.
-5. Rechaza solicitudes fuera de rango o hacia la página actual.
-6. Escribe el nuevo valor de page preservando los demás parámetros.
-7. Desplaza la ventana al inicio con comportamiento suave.
-8. El cambio de URL provoca una nueva consulta.
-
-**Reglas visuales:**
-
-- con una sola página no se muestra el control;
-- con hasta tres páginas se muestran todas;
-- con más páginas se mantienen primera, última y páginas cercanas, agregando elipsis según corresponda.
-
-### CU-09. Crear un usuario
-
-**Actor principal:** administrador autenticado.
-
-**Ruta:** /new-user.
-
-**Valores iniciales:**
-
-- email vacío;
-- name vacío;
-- password vacío;
-- emailVerified=false;
-- role=USER_ROL.
-
-**Flujo principal:**
-
-1. El administrador completa el formulario compartido UserForm en modo create.
-2. React Hook Form valida los datos.
-3. UserCreateForm adapta UserFormValues al contrato NewUser.
-4. useCreateUser ejecuta POST /user.
-5. La action envía email, password, name, emailVerified y role.
-6. Si la respuesta contiene el usuario creado, el hook invalida las queries cuya raíz es ["users"].
-7. Se muestra “Usuario creado”.
-8. La aplicación navega a /users.
-
-**Alternativa A — validación local fallida:** se muestran mensajes bajo cada campo aplicable y no se invoca la API.
-
-**Alternativa B — error de API:** se muestra “No pudimos crear el usuario” con el mensaje normalizado y se conserva el formulario.
-
-**Cancelación:** los enlaces “Cancelar” y “Volver a usuarios” navegan a /users sin enviar datos.
-
-### CU-10. Consultar y editar un usuario
-
-**Actor principal:** administrador autenticado.
-
-**Ruta:** /users/:id.
-
-**Precondición:** existe un parámetro id no vacío.
-
-**Carga de detalle:**
-
-1. useGetUserById crea la clave **["user", { id }]**.
-2. Ejecuta GET /user/:id.
-3. No reintenta automáticamente.
-4. Considera frescos los datos durante cinco minutos.
-5. Mientras espera, muestra “Cargando los datos del usuario”.
-6. Ante error o respuesta nula, muestra ErrorPage.
-
-**Edición:**
-
-1. UserEditForm carga email, emailVerified, name y role.
-2. password comienza vacío.
-3. El administrador modifica valores y envía el formulario.
-4. Si password contiene únicamente una cadena vacía, UserEditForm elimina el campo del payload.
-5. UserPage agrega id desde la ruta.
-6. La action envía PUT /user/:id con email, password cuando corresponda, name, emailVerified y role.
-7. El hook invalida ["users"] y ["user", { id }].
-8. Se muestra “Cambios guardados”.
-9. La aplicación navega a /users.
-
-**Alternativa — error de mutación:** se muestra “No pudimos editar el usuario” y se permanece en la vista.
-
-**Alcance de permisos en el cliente:** la interfaz permite editar la propia cuenta, cuentas inactivas y roles. No contiene reglas adicionales por campo.
-
-### CU-11. Desactivar un usuario
-
-**Actor principal:** administrador autenticado.
-
-**Ubicación:** acción de cada fila o tarjeta del listado.
-
-**Precondiciones locales:**
-
-- la cuenta está activa;
-- la cuenta no corresponde al administrador autenticado;
-- no existe una desactivación de esa instancia en curso.
-
-**Flujo principal:**
-
-1. El administrador pulsa “Eliminar”.
-2. Se abre un alertdialog titulado “Desactivar usuario”.
-3. El diálogo explica que la cuenta podrá restaurarse.
-4. El foco inicial se coloca en “Cancelar”.
-5. El administrador confirma.
-6. Se ejecuta DELETE /user/:id.
-7. Se invalida la familia de queries ["users"].
-8. Se muestra “Usuario desactivado”.
-9. El diálogo se cierra.
-
-**Cancelación:** puede realizarse con el botón, Escape o clic en el fondo mientras no haya una mutación pendiente.
-
-**Protección de cuenta propia:** el botón se deshabilita, cambia su etiqueta a “Protegido” y presenta una ayuda mediante title.
-
-**Semántica:** el nombre técnico de la action es deleteUserAction y usa HTTP DELETE, pero toda la UI lo interpreta como desactivación reversible. El repositorio no permite confirmar cómo persiste esa operación el backend.
-
-**Alternativa — error de mutación:** se muestra “No pudimos desactivar el usuario”; el diálogo permanece abierto y vuelve a permitir cancelar o reintentar.
-
-### CU-12. Restaurar un usuario
-
-**Actor principal:** administrador autenticado.
-
-**Ubicación:** acción de cada fila o tarjeta del listado.
-
-**Precondiciones locales:**
-
-- la cuenta está inactiva;
-- la cuenta no corresponde al administrador autenticado;
-- no existe una restauración de esa instancia en curso.
-
-**Flujo principal:**
-
-1. El administrador pulsa “Restaurar”.
-2. Se abre un alertdialog con semántica visual de éxito.
-3. El administrador confirma.
-4. Se ejecuta PUT /user/restore-user/:id sin cuerpo explícito.
-5. Se invalida la familia ["users"].
-6. Se muestra “Usuario restaurado”.
-7. El diálogo se cierra.
-
-**Cancelación y protección propia:** siguen las mismas reglas que la desactivación.
-
-**Alternativa — error de mutación:** se muestra “No pudimos restaurar el usuario”; el diálogo permanece abierto.
-
-## 8. Mapa de navegación y control de acceso
-
-| Ruta | Tipo | Componente | Guarda | Función |
-|---|---|---|---|---|
-| /login | Pública restringida | LoginPage | NotAuthenticatedRoute | Autenticación |
-| / | Privada, índice | HomePage dentro de UsersLayout | AuthenticatedRoute | Inicio |
-| /users | Privada | UsersPage dentro de UsersLayout | AuthenticatedRoute | Listado y gestión |
-| /users/:id | Privada dinámica | UserPage dentro de UsersLayout | AuthenticatedRoute | Carga y edición |
-| /new-user | Privada | NewUserPage dentro de UsersLayout | AuthenticatedRoute | Alta |
-| Cualquier otra | Redirección | Navigate | Ninguna directa | Redirige a / |
-
-### 8.1. Comportamiento de las guardas
-
-| authStatus | AuthenticatedRoute | NotAuthenticatedRoute |
-|---|---|---|
-| checking | LoadingPage | LoadingPage |
-| authenticated | Renderiza children | Redirige a / |
-| not-authenticated | Redirige a /login | Renderiza children |
-
-UsersLayout contiene el fondo global del panel, el encabezado persistente y un Outlet para la página hija.
-
-## 9. Modelo de datos del frontend
-
-### 9.1. Usuario autenticado
-
-#### UserAuthResponse
-
-| Campo | Tipo | Uso |
-|---|---|---|
-| id | string | Identidad del administrador y protección de su propia cuenta |
-| email | string | Dato de sesión |
-| name | string | Saludo y encabezado |
-| role | PROFESIONAL_ROL o USER_ROL | Autorización inicial y metadato de sesión |
-
-### 9.2. Respuestas de autenticación
-
-LoginResponse y CheckAuthResponse tienen la misma forma:
-
-| Campo | Tipo |
-|---|---|
-| id | string |
-| email | string |
-| name | string |
-| role | PROFESIONAL_ROL o USER_ROL |
-| token | string |
-
-El store separa token del objeto user, aunque mantiene ambos en memoria.
-
-### 9.3. Cuenta gestionada
-
-#### UserResponse
-
-| Campo | Tipo | Representación/uso |
-|---|---|---|
-| id | string | Ruta de detalle y mutaciones |
-| email | string | Listado y formulario |
-| name | string | Listado, avatar y formulario |
-| password | string | Declarado en el contrato, no mostrado en el detalle |
-| emailVerified | boolean | Badge y control de formulario |
-| role | PROFESIONAL_ROL o USER_ROL | Badge, filtro y selector |
-| isActive | boolean | Estado y habilitación de acciones |
-
-El frontend modela password en la respuesta de usuario, pero no lo muestra ni lo usa para precargar la edición. Esto evita exponerlo en pantalla, aunque el campo en el contrato merece revisión con el backend.
-
-### 9.4. Alta
-
-#### NewUser
-
-| Campo | Tipo | Obligatorio |
-|---|---|---|
-| email | string | Sí |
-| name | string | Sí |
-| password | string | Sí |
-| emailVerified | boolean | Sí |
-| role | PROFESIONAL_ROL o USER_ROL | Sí |
-
-### 9.5. Lista paginada
-
-#### UsersResponse
-
-| Campo | Tipo | Significado |
-|---|---|---|
-| results | UserResponse[] | Cuentas de la página |
-| totalPages | number | Total usado por el paginador |
-| page | number | Página informada por el backend |
-| limit | number | Tamaño informado por el backend |
-
-La UI usa results y totalPages. No usa data.page ni data.limit para corregir la URL.
-
-### 9.6. Estado de autenticación
-
-AuthState contiene:
-
-- user: UserAuthResponse o null;
-- token: string o null;
-- authStatus: authenticated, not-authenticated o checking;
-- login(email, password);
-- logout();
-- checkAuthStatus().
-
-## 10. Contrato HTTP consumido
-
-### 10.1. Cliente común
-
-- Cliente: una instancia única de Axios llamada mindsaveAPI.
-- URL base: valor de VITE_API_URL concatenado con /admin.
-- Content-Type: application/json.
-- Autenticación: interceptor de request que consulta localStorage en cada solicitud.
-- Formato de cabecera: Authorization: Bearer TOKEN.
-- No existe interceptor global de respuesta.
-- No existe política global para respuestas 401 o 403.
-
-### 10.2. Operaciones
-
-| ID | Método y ruta relativa | Entrada | Respuesta tipada | Consumidor |
-|---|---|---|---|---|
-| API-01 | POST /auth/login | { email, password } | LoginResponse | loginAction |
-| API-02 | GET /auth/check-status | Bearer token | CheckAuthResponse | checkAuthAction |
-| API-03 | GET /user | Query params opcionales | UsersResponse | getAllUsersByPageAction |
-| API-04 | GET /user/:id | id en ruta | UserResponse | getUserByIdAction |
-| API-05 | POST /user | NewUser | UserResponse | createUserAction |
-| API-06 | PUT /user/:id | email, password opcional en la práctica, name, emailVerified, role | Sin cuerpo consumido; retorna localmente id | editUserAction |
-| API-07 | DELETE /user/:id | id en ruta | Sin cuerpo consumido | deleteUserAction |
-| API-08 | PUT /user/restore-user/:id | id en ruta; sin cuerpo explícito | Sin cuerpo consumido | restoreUserAction |
-
-### 10.3. Parámetros de GET /user
-
-| Parámetro | Tipo generado por el cliente | Valor por defecto efectivo | Condición de envío |
+| ID | Funcionalidad | Ruta o contexto | Comunicación HTTP |
 |---|---|---|---|
-| page | number | 1 | Siempre |
-| limit | number | 10 | Siempre |
-| query | string | Cadena vacía | Solo si trim no está vacío |
-| rol | string | Cadena vacía | Solo si no está vacío |
-| state | string | Cadena vacía | Solo si no está vacío |
-| emailVerify | string | Cadena vacía | Solo si no está vacío |
+| F-01 | Inicializar y revalidar la sesión | Global | `GET /auth/check-status` |
+| F-02 | Iniciar sesión | `/login` | `POST /auth/login` |
+| F-03 | Cerrar sesión | Encabezado de rutas privadas | Ninguna |
+| F-04 | Consultar el inicio administrativo | `/` | Ninguna propia de la página |
+| F-05 | Consultar usuarios | `/users` | `GET /user` |
+| F-06 | Buscar usuarios | `/users?query=...` | `GET /user` con `query` |
+| F-07 | Filtrar usuarios | `/users` con filtros de URL | `GET /user` con filtros |
+| F-08 | Paginar usuarios | `/users?page=...&limit=...` | `GET /user` con `page` y `limit` |
+| F-09 | Crear usuario | `/new-user` | `POST /user` |
+| F-10 | Consultar detalle de usuario | `/users/:id` | `GET /user/:id` |
+| F-11 | Editar usuario | `/users/:id` | `PUT /user/:id` |
+| F-12 | Desactivar usuario | Acción del listado | `DELETE /user/:id` |
+| F-13 | Restaurar usuario | Acción del listado | `PUT /user/restore-user/:id` |
+| F-14 | Gestionar expiración o rechazo de autorización | Global, excepto la solicitud de login | Reacción a respuestas `401` o `403` |
 
-### 10.4. Normalización de errores
+## 6. Reglas funcionales y de negocio implementadas
 
-handleError aplica esta prioridad para errores Axios:
-
-1. response.data.error;
-2. response.data.message;
-3. error.message;
-4. mensaje predeterminado.
-
-Si el valor seleccionado es un arreglo, une sus elementos con coma. Si es string, lo conserva. Para otra forma, usa JSON.stringify. Siempre lanza un nuevo Error y conserva el error original en cause.
-
-Para errores no Axios, usa el mensaje del Error recibido o el mensaje predeterminado y también vuelve a lanzar.
-
-checkAuthAction es una excepción: traduce cualquier fallo del endpoint a “Token expired or not valid” y elimina el token.
-
-Varias actions conservan retornos de respaldo después de llamar a handleError. Como handleError retorna never y siempre lanza, esos retornos son inalcanzables en ejecución.
-
-## 11. Arquitectura de implementación
-
-### 11.1. Estilo
-
-La aplicación usa una arquitectura frontend por features con capas ligeras:
-
-1. **Arranque y composición global:** main.tsx y App.tsx.
-2. **Navegación:** router y guardas.
-3. **Features de dominio:** auth y users.
-4. **Actions:** acceso HTTP.
-5. **Hooks/store:** coordinación de estado remoto y global.
-6. **Pages/layout:** orquestación de casos de uso y navegación.
-7. **Components:** presentación y eventos de usuario.
-8. **UI/shared:** primitivas y estados reutilizables.
-9. **Infraestructura:** cliente Axios, estilos, Vite y TypeScript.
-
-No existe una capa backend, repositorio de persistencia local, service worker ni renderizado del lado del servidor.
-
-### 11.2. Flujo de dependencias
-
-La dirección predominante es:
-
-**Página o componente → hook/store → action → mindsaveAPI → API externa**
-
-El retorno sigue:
-
-**API externa → action tipada → React Query/store → página o componente → UI**
-
-Las pages no invocan Axios directamente. Las actions no navegan ni muestran toasts.
-
-### 11.3. Composición en tiempo de ejecución
-
-1. main.tsx monta App en el elemento root dentro de React StrictMode.
-2. App monta QueryClientProvider.
-3. Toaster configura notificaciones oscuras, accesibles y con iconos.
-4. CheckAuthProvider resuelve la sesión antes de entregar el router.
-5. RouterProvider controla navegación.
-6. ReactQueryDevtools queda disponible con el panel inicialmente cerrado.
-
-### 11.4. Responsabilidades por módulo
-
-| Módulo | Responsabilidad |
-|---|---|
-| src/api/mindsave.backend.ts | Cliente HTTP, token Bearer y errores |
-| src/auth/actions | Operaciones HTTP de autenticación |
-| src/auth/store/auth.store.ts | Estado global y transición de sesión |
-| src/auth/pages/LoginPage.tsx | Captura de credenciales, feedback y navegación |
-| src/components/routes/ProtectedRoutes.tsx | Control declarativo de rutas |
-| src/router/app.router.tsx | Árbol de rutas |
-| src/users/actions | Contrato HTTP de usuarios |
-| src/users/hooks | Queries, mutaciones e invalidación de caché |
-| src/users/pages | Orquestación de pantallas |
-| src/users/components | Formularios, lista, filtros, paginación y acciones |
-| src/components/shared | Marca, diálogo y estados de carga/error |
-| src/components/ui | Primitivas estilizadas |
-| src/index.css | Tokens, identidad visual, animación y estilos globales |
-
-## 12. Estado, caché y sincronización
-
-### 12.1. Estado global local
-
-Zustand se usa exclusivamente para la sesión. El store no se persiste mediante middleware; al recargar, se reconstruye con check-status usando el token de localStorage.
-
-### 12.2. Estado remoto
-
-TanStack Query gestiona autenticación consultable y datos de usuarios.
-
-| Recurso | Query key | Configuración especial |
+| ID | Regla implementada | Mecanismo |
 |---|---|---|
-| Sesión | ["auth"] | retry=false, refetch cada 1,5 horas y al enfocar |
-| Lista | ["users", { page, limit, query, rol, state, emailVerify }] | Parámetros derivados de URL |
-| Detalle | ["user", { id }] | retry=false, staleTime=5 minutos, enabled solo con id |
+| RN-01 | El rol administrativo reconocido es exactamente `PROFESIONAL_ROL`. | Comparación en los flujos `login` y `checkAuthStatus` |
+| RN-02 | El otro rol de cuenta reconocido es exactamente `USER_ROL`. | Uniones literales de TypeScript, formularios y filtros |
+| RN-03 | El token se persiste con la clave exacta `token`. | Lectura y escritura en `localStorage` |
+| RN-04 | Las solicitudes del cliente común envían `Authorization: Bearer <token>` cuando existe token. | Interceptor de solicitud de Axios |
+| RN-05 | La base efectiva del cliente HTTP es `${VITE_API_URL}/admin`. | Creación de la instancia `mindsaveAPI` |
+| RN-06 | Una revalidación correcta reemplaza el token persistido por el token recibido. | `checkAuthAction` |
+| RN-07 | Las rutas privadas requieren `authStatus = authenticated`. | `AuthenticatedRoute` |
+| RN-08 | `/login` solo se presenta cuando no hay sesión autenticada. | `NotAuthenticatedRoute` |
+| RN-09 | El administrador no puede desactivar ni restaurar su propia cuenta desde el listado. | Comparación del `id` autenticado con el `id` de la cuenta |
+| RN-10 | Desactivar y restaurar requieren confirmación explícita. | `ConfirmDialog` |
+| RN-11 | Una contraseña vacía en edición representa «mantener la contraseña actual». | Eliminación de `password` en `UserEditForm` |
+| RN-12 | Cambiar búsqueda o filtros restablece `page` a `1`. | Actualización de `URLSearchParams` |
+| RN-13 | Búsqueda, filtros y paginación preservan parámetros de URL no relacionados. | Copia de los parámetros existentes antes de modificar uno |
+| RN-14 | Crear o editar con éxito navega al listado `/users`. | Callbacks de éxito de las páginas |
+| RN-15 | Una cuenta activa habilita la desactivación y deshabilita la restauración. | Estado calculado de ambos botones |
+| RN-16 | Una cuenta inactiva habilita la restauración y deshabilita la desactivación. | Estado calculado de ambos botones |
+| RN-17 | El administrador no puede asignar `USER_ROL` a su propia cuenta desde el formulario. | Comparación de correos en `UserPage` antes de la mutación |
+| RN-18 | El administrador no puede desverificar el correo de su propia cuenta desde el formulario. | Comparación de correos en `UserPage` antes de la mutación |
+| RN-19 | Los controles asociados a una operación pendiente permanecen deshabilitados. | Estados `isPosting` e `isPending` |
+| RN-20 | La ausencia de resultados es un estado válido del listado. | Presentación vacía de `UserList` |
+| RN-21 | Una respuesta `401` o `403` de una solicitud distinta del login cierra la sesión local. | Interceptor de respuesta y handler registrado por el store |
+| RN-22 | Los filtros solo llegan a la API si pertenecen a sus conjuntos de literales permitidos. | Normalización en `useGetUsers` |
+| RN-23 | `page` y `limit` se interpretan como enteros positivos; `limit` no supera `100`. | `parsePositiveInteger` |
+| RN-24 | El texto de búsqueda efectivo se recorta, elimina espacios exteriores y se limita a 100 caracteres. | Normalización en `useGetUsers` |
 
-### 12.3. Invalidación por mutación
+### 6.1. Literales funcionales
 
-| Mutación | Caché invalidada |
-|---|---|
-| Crear | Todas las queries con raíz ["users"], solo si la action devuelve un usuario |
-| Editar | ["users"] y ["user", { id }] |
-| Desactivar | ["users"] |
-| Restaurar | ["users"] |
-
-Desactivar y restaurar no invalidan una posible query de detalle ya almacenada para ese usuario.
-
-### 12.4. Estado de URL
-
-La URL es la fuente de verdad para:
-
-- page;
-- limit;
-- query;
-- rol;
-- state;
-- emailVerify.
-
-Beneficios efectivos:
-
-- la navegación atrás/adelante conserva cambios;
-- una URL puede representar una vista filtrada;
-- la clave de caché coincide con la combinación visible.
-
-Limitaciones efectivas:
-
-- page y limit aceptan números decimales porque solo se comprueba NaN y valores menores que 1;
-- la URL no se reescribe cuando se aplica un valor predeterminado a un parámetro inválido;
-- useGetUsers no limita page al total de páginas antes de solicitar;
-- rol, state y emailVerify se envían si no están vacíos, sin comprobar que una URL manipulada contenga uno de los literales admitidos por los selectores;
-- limit tiene soporte en URL, query key y API, pero no existe un control visible para modificarlo;
-- el campo de búsqueda usa defaultValue y no se resincroniza necesariamente si query cambia externamente sin remontar el componente.
-
-## 13. Validaciones y transformación de formularios
-
-### 13.1. Reglas activas
-
-Las validaciones ejecutadas pertenecen a React Hook Form:
-
-| Campo | Alta | Edición |
+| Concepto | Valor de contrato | Etiqueta visible |
 |---|---|---|
-| name | Obligatorio, mínimo 2 y máximo 30 caracteres | Igual |
-| role | Obligatorio; UI ofrece los dos roles conocidos | Igual |
-| email | Obligatorio y expresión regular de correo | Igual |
-| password | Entre 4 y 20 caracteres | Vacío permitido; si se informa, entre 4 y 20 |
-| emailVerified | Booleano mediante checkbox | Igual |
+| Rol administrativo | `PROFESIONAL_ROL` | Administrador |
+| Rol común | `USER_ROL` | Usuario |
+| Cuenta activa | `active` en filtro; `isActive=true` en respuesta | Activo |
+| Cuenta inactiva | `inactive` en filtro; `isActive=false` en respuesta | Inactivo |
+| Correo verificado | `verify` en filtro; `emailVerified=true` en respuesta | Verificado |
+| Correo no verificado | `unverify` en filtro; `emailVerified=false` en respuesta | No verificado |
 
-No se aplica trim a name, email o password antes de enviar. La expresión de correo es **^[^\s@]+@[^\s@]+\.[^\s@]+$**.
+## 7. Navegación y control de acceso
 
-La regla activa de role solo exige un valor. El selector ofrece los literales válidos, pero React Hook Form no ejecuta una validación de pertenencia al enum si el DOM o la solicitud se manipulan.
+### 7.1. Árbol de rutas
 
-### 13.2. Adaptadores
+| Ruta | Página o layout | Acceso | Propósito |
+|---|---|---|---|
+| `/` | `UsersLayout` + `HomePage` | Autenticado | Inicio administrativo |
+| `/users` | `UsersLayout` + `UsersPage` | Autenticado | Listado y gestión de cuentas |
+| `/users/:id` | `UsersLayout` + `UserPage` | Autenticado | Consulta y edición de una cuenta |
+| `/new-user` | `UsersLayout` + `NewUserPage` | Autenticado | Creación de una cuenta |
+| `/login` | `LoginPage` | No autenticado | Inicio de sesión |
+| Cualquier otra | `Navigate` | Según destino `/` | Redirección al inicio |
 
-- UserCreateForm entrega todos los valores como NewUser.
-- UserEditForm construye Partial<UserResponse>.
-- En edición, elimina password si su valor es la cadena vacía después de trim.
-- UserPage añade id desde la ruta antes de invocar la mutación.
+### 7.2. Guardas
 
-### 13.3. Esquema Zod no activo
+`AuthenticatedRoute` consulta `authStatus` en Zustand:
 
-src/users/validators/userValidator.ts declara un UserSchema con id opcional, email, name, password, emailVerified, role e isActive. Ningún formulario, action ni hook importa ese esquema. Por tanto:
+- con `checking`, muestra `LoadingPage`;
+- con `not-authenticated`, redirige a `/login`;
+- con `authenticated`, renderiza el contenido privado.
 
-- Zod no participa en la validación de ejecución;
-- las reglas de longitud del formulario no existen en el esquema;
-- el esquema exige isActive aunque el formulario no lo gestiona;
-- no debe usarse el esquema como descripción del comportamiento actual.
+`NotAuthenticatedRoute` aplica la regla inversa:
 
-## 14. Interfaz y experiencia de usuario
+- con `checking`, muestra `LoadingPage`;
+- con `authenticated`, redirige a `/`;
+- con `not-authenticated`, presenta el login.
 
-### 14.1. Identidad
+### 7.3. Carga diferida
 
-La interfaz activa es exclusivamente oscura:
+Las cuatro páginas, el layout privado y la página de login se cargan mediante `React.lazy`. Cada elemento diferido queda contenido en `Suspense`, cuyo fallback es `LoadingPage`. El router se implementa con `createBrowserRouter` y se monta mediante `RouterProvider`.
 
-- fondo principal #080f0f;
-- superficies profundas;
-- acento teal #00b2b3;
-- éxito verde, advertencia ámbar y peligro rojo;
-- Lora para titulares;
-- Inter para cuerpo y controles.
+### 7.4. Layout privado y encabezado
 
-Aunque el documento de diseño menciona modo claro, el código no implementa selector ni tokens activos alternativos.
+`UsersLayout` proporciona:
 
-### 14.2. Adaptación responsive
+- fondo de página oscuro y cuadrícula decorativa fija;
+- `CustomHeader` compartido;
+- un `Outlet` para la página hija activa.
 
-- ancho mínimo global: 320 px;
-- listado como tabla en lg y como tarjetas debajo de lg;
-- encabezado compacta el logo y oculta textos según breakpoint;
-- formularios ajustan padding y colocación de acciones;
-- paginador oculta etiquetas secundarias en pantallas pequeñas;
-- filtros cambian de una a tres columnas progresivamente.
+El encabezado permanece adherido (`sticky`) al borde superior durante el desplazamiento y contiene:
 
-### 14.3. Estados visibles
+- el logo enlazado a `/`, compacto en pantallas pequeñas;
+- navegación a `/users` con estado activo también en `/users/:id` y `/new-user`;
+- nombre del administrador y etiqueta «Administrador» en pantallas grandes;
+- acción «Cerrar sesión».
+
+## 8. Autenticación y ciclo de sesión
+
+### 8.1. Estado de autenticación
+
+El store `useAuthStore` mantiene:
+
+| Propiedad | Tipo | Significado |
+|---|---|---|
+| `user` | `UserAuthResponse \| null` | Identidad del administrador autenticado |
+| `token` | `string \| null` | Copia en memoria del token vigente |
+| `authStatus` | `authenticated \| not-authenticated \| checking` | Estado usado por las guardas |
+
+También expone tres operaciones:
+
+- `login(email, password)`;
+- `logout()`;
+- `checkAuthStatus()`.
+
+El estado inicial es `user=null`, `token=null` y `authStatus=checking`.
+
+### 8.2. Inicialización y revalidación de sesión
+
+`CheckAuthProvider`, montado dentro de `QueryClientProvider`, crea una consulta con:
+
+- query key `['auth']`;
+- query function `checkAuthStatus`;
+- reintentos automáticos deshabilitados;
+- intervalo de revalidación de 1,5 horas;
+- revalidación al recuperar el foco de la ventana.
+
+Durante la primera carga presenta `LoadingPage` con el mensaje «Comprobando tu sesión».
+
+#### Flujo con token
+
+1. El store lee `token` desde `localStorage`.
+2. `checkAuthAction` vuelve a comprobar la existencia del token.
+3. El cliente ejecuta `GET /auth/check-status`.
+4. El interceptor de solicitud incorpora el token Bearer.
+5. La respuesta entrega `id`, `email`, `name`, `role` y un token.
+6. La action reemplaza el token persistido por el token de la respuesta.
+7. El store comprueba que `role` sea `PROFESIONAL_ROL`.
+8. Si el rol coincide, crea el objeto `user`, actualiza el token en memoria y establece `authenticated`.
+9. Si el rol no coincide, elimina el token, limpia la caché y establece `not-authenticated`.
+
+#### Flujo sin token
+
+1. El store detecta que la clave no existe.
+2. Establece `user=null`, `token=null` y `authStatus=not-authenticated`.
+3. Devuelve `false` sin invocar la API.
+
+#### Flujo con rechazo de autenticación
+
+Para una respuesta `401` o `403`, el interceptor global ejecuta el cierre local y la action elimina el token. El store clasifica el resultado como error de autenticación, limpia la caché y establece el estado no autenticado.
+
+#### Flujo con error de conectividad o servidor
+
+`checkAuthAction` conserva el token persistido y propaga un error con el mensaje de la respuesta, de Axios o el texto «Error de conexión con el servidor». El store devuelve `false`. Si todavía estaba en el estado inicial `checking`, cambia `authStatus` a `not-authenticated`; si la revalidación ocurrió sobre una sesión ya autenticada, no reemplaza el estado de sesión vigente en esa rama.
+
+### 8.3. Inicio de sesión
+
+#### Precondición de navegación
+
+La ruta `/login` es visible cuando `authStatus` es `not-authenticated`. Una sesión autenticada provoca redirección a `/`.
+
+#### Entradas
+
+| Campo | Tipo HTML | Reglas del formulario de login |
+|---|---|---|
+| Correo | `email` | Obligatorio; `autocomplete=email` |
+| Contraseña | `password` | Obligatoria; `autocomplete=current-password` |
+
+#### Flujo principal
+
+1. El operador envía el formulario.
+2. `LoginPage` establece `isPosting=true`, deshabilitando campos y botón.
+3. Obtiene `email` y `password` mediante `FormData`.
+4. Llama a `useAuthStore.login`.
+5. `loginAction` envía `POST /auth/login` con `{ email, password }`.
+6. El store exige `role === 'PROFESIONAL_ROL'`.
+7. Limpia la caché de TanStack Query.
+8. Construye `user` con `id`, `email`, `name` y `role`.
+9. Guarda el token en `localStorage` y en el store.
+10. Establece `authStatus=authenticated` y devuelve `true`.
+11. La página muestra el toast «Sesión iniciada» y navega a `/`.
+12. En el bloque `finally`, restablece `isPosting=false`.
+
+#### Respuesta con rol no administrativo
+
+El store devuelve `false`. La página muestra «Acceso no autorizado» con la explicación de que la cuenta no tiene permisos para el panel y permanece en el login.
+
+#### Error de la solicitud
+
+El store elimina el token local, limpia la caché, restablece los datos de sesión y propaga el error normalizado. La página presenta «No pudimos iniciar sesión» y utiliza el mensaje de error como descripción.
+
+### 8.4. Cierre de sesión
+
+El botón del encabezado ejecuta `logout()`:
+
+1. elimina `token` de `localStorage`;
+2. limpia toda la caché de TanStack Query;
+3. establece `user=null`, `token=null` y `authStatus=not-authenticated`;
+4. muestra «Sesión cerrada»;
+5. la guarda privada redirige a `/login`.
+
+El cierre es local y no envía una solicitud HTTP.
+
+### 8.5. Reacción global a `401` y `403`
+
+El módulo del store registra su método `logout` como handler de acceso no autorizado en el cliente Axios. Para cualquier respuesta `401` o `403`, excepto una solicitud cuya URL contiene `/auth/login`, el interceptor:
+
+1. invoca el handler registrado;
+2. elimina el token y limpia la caché por medio de `logout`;
+3. cambia la sesión a `not-authenticated`;
+4. mantiene el rechazo de la promesa HTTP para que la consulta o mutación reciba el error.
+
+El cliente también contiene un camino de respaldo que elimina token y caché si todavía no existe un handler registrado.
+
+### 8.6. Máquina de estados de sesión
+
+| Estado origen | Evento o condición | Estado destino | Efectos principales |
+|---|---|---|---|
+| Inicio | Creación del store | `checking` | Sesión aún no resuelta |
+| `checking` | No existe token | `not-authenticated` | Usuario y token en memoria quedan nulos |
+| `checking` | `check-status` correcto y rol administrativo | `authenticated` | Usuario y token quedan disponibles |
+| `checking` | Rol no administrativo | `not-authenticated` | Token y caché se eliminan |
+| `checking` | Rechazo `401/403` | `not-authenticated` | Token y caché se eliminan |
+| `checking` | Error de conectividad o servidor | `not-authenticated` | Finaliza el estado de comprobación |
+| `not-authenticated` | Login correcto y rol administrativo | `authenticated` | Token persistido y usuario cargado |
+| `not-authenticated` | Login con rol no administrativo | `not-authenticated` | Acceso no concedido |
+| `not-authenticated` | Login fallido | `not-authenticated` | Token y caché se limpian |
+| `authenticated` | Logout | `not-authenticated` | Se elimina la sesión local |
+| `authenticated` | `401/403` global | `not-authenticated` | Se elimina la sesión local |
+| `authenticated` | Revalidación correcta | `authenticated` | Token renovado |
+| `authenticated` | Revalidación con error de conectividad o servidor | `authenticated` | El store conserva el estado de sesión de esa rama y devuelve `false` |
+
+## 9. Pantalla de inicio administrativo
+
+`HomePage`, disponible en `/`, no realiza una consulta HTTP propia. Obtiene al administrador desde Zustand y presenta:
+
+- un saludo calculado con la hora local del navegador;
+- el nombre del administrador o «Administrador» como valor de respaldo;
+- un texto introductorio;
+- una tarjeta de acceso a `/users` para gestionar cuentas;
+- una tarjeta de acceso a `/new-user` para crear una cuenta.
+
+La regla horaria del saludo es:
+
+| Hora local | Saludo |
+|---|---|
+| Antes de las 12:00 | Buenos días |
+| Desde las 12:00 y antes de las 19:00 | Buenas tardes |
+| Desde las 19:00 | Buenas noches |
+
+## 10. Consulta y presentación del listado de usuarios
+
+### 10.1. Entrada desde la URL
+
+`useGetUsers` usa `useSearchParams` para convertir la URL en el estado de consulta.
+
+| Parámetro | Valor por defecto | Normalización | Uso |
+|---|---:|---|---|
+| `page` | `1` | Entero finito mayor o igual a 1 | Página solicitada |
+| `limit` | `10` | Entero finito entre 1 y 100 | Cantidad solicitada por página |
+| `query` | Cadena vacía | `trim()` y máximo de 100 caracteres | Texto de búsqueda |
+| `rol` | Cadena vacía | Solo `USER_ROL` o `PROFESIONAL_ROL` | Rol |
+| `state` | Cadena vacía | Solo `active` o `inactive` | Actividad de cuenta |
+| `emailVerify` | Cadena vacía | Solo `verify` o `unverify` | Verificación de correo |
+
+`page` y `limit` siempre forman parte de los parámetros enviados. Los otros parámetros solo se agregan al objeto HTTP cuando su valor efectivo no está vacío.
+
+La query key es:
+
+```text
+[
+  "users",
+  { page, limit, query, rol, state, emailVerify }
+]
+```
+
+Por tanto, cada combinación normalizada de página, límite, búsqueda y filtros representa una entrada diferenciada de caché.
+
+### 10.2. Obtención de datos
+
+`getAllUsersByPageAction` ejecuta `GET /user` y envía los parámetros recibidos mediante la opción `params` de Axios. Espera una respuesta `UsersResponse` con:
+
+- `results`: arreglo de cuentas;
+- `totalPages`: total de páginas;
+- `page`: página reportada por la API;
+- `limit`: límite reportado por la API.
+
+Cuando una respuesta indica un `totalPages` mayor que cero y la página solicitada excede ese total, un efecto reemplaza el parámetro `page` de la URL por `totalPages`. La actualización usa la opción `replace`, por lo que sustituye la entrada actual del historial.
+
+### 10.3. Estructura de la página
+
+`UsersPage` presenta:
+
+1. título y descripción de la gestión;
+2. enlace «Crear usuario» hacia `/new-user`;
+3. superficie con búsqueda y filtros;
+4. listado de cuentas;
+5. paginación cuando hay más de una página.
+
+### 10.4. Representación de cada cuenta
+
+Cada cuenta muestra:
+
+- avatar textual generado con las iniciales de las primeras dos palabras del nombre;
+- nombre;
+- correo;
+- rol con etiqueta visual;
+- estado activo o inactivo;
+- correo verificado o no verificado;
+- enlace de edición;
+- acción de desactivación;
+- acción de restauración.
+
+La cuenta cuyo `id` coincide con el administrador autenticado se marca como «Tu cuenta» en la tabla y con un icono accesible equivalente en tarjetas.
+
+### 10.5. Presentación responsive
+
+`UserList` mantiene dos representaciones del mismo arreglo:
+
+- desde el breakpoint `lg`, una tabla con columnas separadas para atributos y acciones;
+- por debajo de `lg`, tarjetas individuales con atributos agrupados y tres acciones en la zona inferior.
+
+Los estados se presentan con badges semánticos:
+
+| Dato | Presentación |
+|---|---|
+| `PROFESIONAL_ROL` | Badge teal «Administrador» |
+| `USER_ROL` | Badge neutro «Usuario» |
+| `isActive=true` | Badge verde «Activo» |
+| `isActive=false` | Badge rojo «Inactivo» |
+| `emailVerified=true` | Badge verde «Verificado» |
+| `emailVerified=false` | Badge ámbar «No verificado» |
+
+### 10.6. Estados de la consulta
 
 | Estado | Presentación |
 |---|---|
-| Comprobación de sesión | LoadingPage con marca y barra animada |
-| Carga de usuarios | LoadingPage |
-| Carga de detalle | LoadingPage |
-| Error de consulta | ErrorPage con recarga e inicio |
-| Lista vacía | Tarjeta “No encontramos usuarios” |
-| Mutación pendiente | Controles deshabilitados y etiquetas verbales |
-| Éxito/fallo de mutación | Toast de Sonner |
-| Acción destructiva/restauración | ConfirmDialog |
+| Carga | `LoadingPage` con «Cargando usuarios» |
+| Error o respuesta sin `results` | `ErrorPage` con el mensaje disponible |
+| `results` vacío | Estado «No encontramos usuarios» |
+| Resultados disponibles | Tabla o tarjetas más paginación |
 
-### 14.4. Accesibilidad observada
+## 11. Búsqueda de usuarios
 
-La implementación incluye:
+`SearchBar` implementa un formulario con rol accesible `search`.
 
-- idioma es en index.html;
-- etiquetas asociadas a inputs y selects;
-- aria-invalid y mensajes con role=alert en formularios;
-- role=search en la búsqueda;
-- navegación con aria-label;
-- aria-current en la página activa;
-- nombres accesibles para botones de paginación y cierre de sesión;
-- iconos decorativos ocultos en algunos contextos;
-- alertdialog con aria-modal, título y descripción enlazados;
-- foco inicial en Cancelar;
-- cierre con Escape;
-- foco visible;
-- role=status y aria-live en carga;
-- reducción global de animación mediante prefers-reduced-motion.
+### 11.1. Aplicar búsqueda
 
-Limitaciones:
+1. El campo se inicializa con el valor `query` existente en la URL.
+2. El administrador escribe y envía el formulario.
+3. El componente aplica `trim()` y convierte el texto a minúsculas.
+4. Si queda contenido, escribe `query` en la URL; si queda vacío, elimina el parámetro.
+5. Establece `page=1`.
+6. Conserva el resto de parámetros.
+7. El cambio de la query key provoca la consulta correspondiente.
 
-- ConfirmDialog no implementa un focus trap completo;
-- no devuelve explícitamente el foco al elemento disparador al cerrar;
-- algunos iconos visibles dentro de enlaces no están marcados como decorativos, aunque el enlace ya tiene texto.
+### 11.2. Limpiar búsqueda
 
-## 15. Manejo de errores y retroalimentación
+Cuando la URL contiene una búsqueda activa, aparece un botón de limpieza. Al utilizarlo:
 
-### 15.1. Consultas
+- vacía el elemento de entrada;
+- elimina `query` de la URL;
+- establece `page=1`;
+- conserva filtros y límite;
+- devuelve el foco al campo de búsqueda.
 
-Los errores de listado y detalle se delegan a ErrorPage. “Reintentar” recarga toda la ventana, por lo que vuelve a ejecutar la comprobación de sesión y la consulta.
+La interfaz describe el criterio como «Buscar por nombre o correo». El texto normalizado se transmite al backend como un único parámetro `query`.
 
-### 15.2. Mutaciones
+## 12. Filtrado de usuarios
 
-Cada mutación presenta un toast específico:
+`UserFilters` presenta tres selectores:
 
-| Acción | Éxito | Fallo |
+| Selector | Opciones y valores |
+|---|---|
+| Estado del correo | Todos; Verificado=`verify`; No verificado=`unverify` |
+| Rol | Todos; Administrador=`PROFESIONAL_ROL`; Usuario=`USER_ROL` |
+| Estado de la cuenta | Todos; Activos=`active`; Inactivos=`inactive` |
+
+Al cambiar un selector:
+
+1. el valor no vacío se escribe en su parámetro;
+2. la opción «Todos» elimina ese parámetro;
+3. `page` pasa a `1`;
+4. se preservan búsqueda, límite y demás filtros.
+
+El botón «Limpiar filtros» solo aparece si al menos uno de los tres parámetros tiene contenido. La acción elimina `emailVerify`, `rol` y `state`, conserva la búsqueda y el límite, y establece `page=1`.
+
+## 13. Paginación de usuarios
+
+`CustomPagination` recibe `totalPages` desde la respuesta. No renderiza controles cuando el total es menor o igual a uno.
+
+Para una página válida, permite:
+
+- ir a la primera página;
+- ir a la página anterior;
+- seleccionar un número visible;
+- ir a la página siguiente;
+- ir a la última página.
+
+La acción se ignora si el destino queda fuera de `1..totalPages` o coincide con la página actual. Un cambio válido:
+
+1. reemplaza únicamente `page` dentro de una copia de los parámetros actuales;
+2. conserva búsqueda, filtros, límite y cualquier otro parámetro;
+3. desplaza la ventana al comienzo con desplazamiento suave;
+4. activa una consulta con la nueva query key.
+
+### 13.1. Números y elipsis
+
+`getPaginationItems` devuelve números o los marcadores `ellipsis-left` y `ellipsis-right`:
+
+- con cero páginas, devuelve una lista vacía;
+- con una a tres páginas, devuelve todos los números;
+- al comienzo de un conjunto mayor, muestra las tres primeras, elipsis derecha y última;
+- al final, muestra primera, elipsis izquierda y las tres últimas;
+- en una zona intermedia, muestra primera, elipsis izquierda, página anterior, actual, siguiente, elipsis derecha y última.
+
+Los marcadores se representan con el icono de puntos suspensivos y se ocultan del árbol accesible.
+
+## 14. Creación de usuario
+
+### 14.1. Acceso y valores iniciales
+
+La creación está disponible en `/new-user`. `UserCreateForm` instancia el formulario compartido con:
+
+| Campo | Valor inicial |
+|---|---|
+| `name` | `""` |
+| `role` | `USER_ROL` |
+| `email` | `""` |
+| `password` | `""` |
+| `emailVerified` | `false` |
+
+### 14.2. Validación activa
+
+El formulario usa React Hook Form con `zodResolver(createUserSchema)`.
+
+| Campo | Regla |
+|---|---|
+| `name` | Se recorta; obligatorio; mínimo 2 y máximo 30 caracteres |
+| `role` | Debe ser `USER_ROL` o `PROFESIONAL_ROL` |
+| `email` | Debe tener formato de correo válido |
+| `password` | Obligatoria; mínimo 6 y máximo 20 caracteres |
+| `emailVerified` | Booleano |
+
+El formulario HTML utiliza `noValidate`, por lo que esta validación se ejecuta por medio de React Hook Form y Zod. Los mensajes aparecen bajo el campo correspondiente con `role=alert`, y los inputs de texto inválidos exponen `aria-invalid`.
+
+Los campos aparecen en el orden nombre, rol, correo, contraseña y verificación. El rol se captura con un selector. La verificación se captura con un checkbox visualmente representado como tarjeta e interruptor; `useWatch` observa su valor para alternar icono, color, descripción y badge entre «Verificado» y «No verificado».
+
+### 14.3. Flujo de creación
+
+1. El administrador completa y envía el formulario.
+2. El resolver valida y entrega `UserFormValues`.
+3. `UserCreateForm` entrega los valores como `NewUser`.
+4. `useCreateUser` inicia una mutación.
+5. `createUserAction` envía `POST /user` con `email`, `password`, `name`, `emailVerified` y `role`.
+6. La action devuelve el `UserResponse` recibido.
+7. El hook invalida todas las queries cuya raíz es `['users']`.
+8. La página muestra «Usuario creado» con el nombre de la cuenta.
+9. La página navega a `/users`.
+
+Durante la mutación, todos los campos y el botón de envío quedan deshabilitados. El botón cambia su texto de «Crear usuario» a «Creando…».
+
+Si la mutación falla, se muestra «No pudimos crear el usuario» con el mensaje normalizado y no se ejecuta la navegación de éxito.
+
+Los enlaces «Volver a usuarios» y «Cancelar» navegan a `/users` sin invocar la action.
+
+## 15. Consulta y edición de usuario
+
+### 15.1. Carga del detalle
+
+`UserPage` obtiene `id` mediante `useParams`. `useGetUserById(id)` configura una query con:
+
+- query key `['user', { id }]`;
+- query function `getUserByIdAction(id)`;
+- ejecución habilitada solo cuando `id` tiene contenido;
+- reintento automático deshabilitado;
+- `staleTime` de cinco minutos.
+
+La action ejecuta `GET /user/:id` y espera un `UserResponse`.
+
+| Estado | Presentación |
+|---|---|
+| Carga | `LoadingPage` con «Cargando los datos del usuario» |
+| Error o usuario ausente | `ErrorPage` |
+| Usuario disponible | `UserEditForm` con sus datos |
+
+### 15.2. Valores del formulario
+
+El formulario de edición recibe:
+
+- `email` de la respuesta;
+- `name` de la respuesta;
+- `role` de la respuesta;
+- `emailVerified` de la respuesta;
+- `password=""`.
+
+### 15.3. Validación activa
+
+El modo edición usa `zodResolver(editUserSchema)`.
+
+| Campo | Regla |
+|---|---|
+| `name` | Se recorta; obligatorio; mínimo 2 y máximo 30 caracteres |
+| `role` | Debe ser `USER_ROL` o `PROFESIONAL_ROL` |
+| `email` | Debe tener formato de correo válido |
+| `password` | Puede ser exactamente vacío o tener entre 6 y 20 caracteres |
+| `emailVerified` | Booleano |
+
+### 15.4. Transformación de la contraseña
+
+Antes de entregar el payload a la página, `UserEditForm` evalúa `values.password.trim()`:
+
+- si queda vacío, elimina la propiedad `password` del objeto;
+- si contiene texto válido, conserva `password` para la actualización.
+
+Este adaptador implementa el comportamiento visible «Deja la contraseña vacía para mantener la actual».
+
+### 15.5. Restricciones sobre la propia cuenta
+
+Antes de iniciar la mutación, `UserPage` compara el correo de la sesión con el correo del usuario cargado.
+
+| Condición | Resultado |
+|---|---|
+| Es la propia cuenta y el nuevo rol es `USER_ROL` | Cancela el envío y muestra «No puedes cambiar tu rol» |
+| Es la propia cuenta y `emailVerified` es `false` | Cancela el envío y muestra «No puedes desverificar tu correo» |
+| Ninguna de las anteriores | Continúa con la mutación |
+
+### 15.6. Flujo de actualización
+
+1. El formulario entrega los valores validados y adaptados.
+2. `UserPage` agrega el `id` obtenido de la ruta.
+3. La mutación ejecuta `editUserAction`.
+4. La action envía `PUT /user/:id` con `email`, `password` cuando está definido, `name`, `emailVerified` y `role`.
+5. La action devuelve el mismo `id`.
+6. El hook invalida `['users']` y `['user', { id }]`.
+7. La página muestra «Cambios guardados».
+8. La página navega a `/users`.
+
+Durante la mutación, el formulario queda deshabilitado y el botón muestra «Guardando…». Si la solicitud falla, se muestra «No pudimos editar el usuario» y no se ejecuta la navegación de éxito.
+
+## 16. Desactivación de usuario
+
+La interfaz usa el término «desactivar» para la operación `DELETE /user/:id` y la presenta como reversible mediante la restauración.
+
+### 16.1. Disponibilidad de la acción
+
+`DeleteUserButton` calcula:
+
+- `isCurrentUser` comparando el `id` de la sesión con `userId`;
+- `disabled` cuando la mutación está pendiente, la cuenta ya está inactiva o es la propia cuenta.
+
+Para la propia cuenta, el botón muestra «Protegido», un icono de escudo y el título «No puedes eliminar tu propia cuenta».
+
+### 16.2. Confirmación y ejecución
+
+1. El administrador pulsa «Eliminar» en una cuenta activa distinta de la propia.
+2. Se abre un `ConfirmDialog` de variante de peligro con título «Desactivar usuario».
+3. El diálogo explica que la cuenta podrá restaurarse posteriormente.
+4. El administrador puede cancelar o confirmar «Desactivar».
+5. Al confirmar, la mutación invoca `deleteUserAction(userId)`.
+6. La action ejecuta `DELETE /user/:id`.
+7. En éxito, se invalidan `['users']` y `['user', { id: userId }]`.
+8. Se muestra «Usuario desactivado».
+9. El diálogo se cierra.
+
+Durante la solicitud, el botón de la fila muestra «Eliminando…» y el diálogo muestra «Procesando…». Si la solicitud falla, el diálogo permanece disponible y se presenta «No pudimos desactivar el usuario».
+
+## 17. Restauración de usuario
+
+### 17.1. Disponibilidad de la acción
+
+`RestoreUserButton` deshabilita la acción cuando:
+
+- la mutación está pendiente;
+- la cuenta ya está activa;
+- la cuenta corresponde al administrador autenticado.
+
+Para la propia cuenta utiliza la misma representación «Protegido».
+
+### 17.2. Confirmación y ejecución
+
+1. El administrador pulsa «Restaurar» en una cuenta inactiva distinta de la propia.
+2. Se abre un `ConfirmDialog` de variante de éxito con título «Restaurar usuario».
+3. El diálogo indica que la cuenta recuperará el acceso.
+4. El administrador puede cancelar o confirmar «Restaurar».
+5. Al confirmar, la mutación invoca `restoreUserAction(userId)`.
+6. La action ejecuta `PUT /user/restore-user/:id` sin cuerpo explícito.
+7. En éxito, se invalidan `['users']` y `['user', { id: userId }]`.
+8. Se muestra «Usuario restaurado».
+9. El diálogo se cierra.
+
+Durante la solicitud, el botón muestra «Restaurando…» y el diálogo muestra «Procesando…». Si la solicitud falla, se presenta «No pudimos restaurar el usuario».
+
+## 18. Comportamiento del diálogo de confirmación
+
+`ConfirmDialog` es compartido por desactivación y restauración. Recibe título, descripción, etiqueta de confirmación, estado pendiente, callbacks y variante semántica.
+
+Su comportamiento es:
+
+- se representa como `role=alertdialog` y `aria-modal=true`;
+- enlaza título y descripción con `aria-labelledby` y `aria-describedby`;
+- al montarse, guarda el elemento que tenía foco y enfoca «Cancelar»;
+- limita la navegación con `Tab` y `Shift+Tab` a los elementos enfocables del diálogo;
+- `Escape` cancela cuando no existe operación pendiente;
+- un clic en el fondo cancela cuando no existe operación pendiente;
+- durante una operación pendiente, deshabilita cancelar y confirmar;
+- al desmontarse, devuelve el foco al elemento previamente activo;
+- aplica rojo e icono de alerta para peligro;
+- aplica verde e icono de restauración para éxito.
+
+## 19. Modelo de datos del frontend
+
+### 19.1. Identidad autenticada: `UserAuthResponse`
+
+| Campo | Tipo | Significado en el frontend |
 |---|---|---|
-| Login | Sesión iniciada | Acceso no autorizado o No pudimos iniciar sesión |
-| Logout | Sesión cerrada | No aplica |
-| Crear | Usuario creado | No pudimos crear el usuario |
-| Editar | Cambios guardados | No pudimos editar el usuario |
-| Desactivar | Usuario desactivado | No pudimos desactivar el usuario |
-| Restaurar | Usuario restaurado | No pudimos restaurar el usuario |
+| `id` | `string` | Identificador de la cuenta autenticada |
+| `email` | `string` | Correo de la cuenta autenticada |
+| `name` | `string` | Nombre presentado en inicio y encabezado |
+| `role` | `PROFESIONAL_ROL \| USER_ROL` | Rol recibido; el store exige el valor administrativo para autenticar |
 
-### 15.3. Ausencias
+### 19.2. Respuesta de login: `LoginResponse`
 
-- no hay Error Boundary global de React;
-- no hay gestión global de expiración durante una mutación ordinaria;
-- no hay reintentos personalizados para usuarios;
-- no hay modo offline;
-- no se conserva un borrador de formularios.
+Contiene los cuatro campos de `UserAuthResponse` y:
 
-## 16. Seguridad y autorización
+| Campo | Tipo | Uso |
+|---|---|---|
+| `token` | `string` | Credencial persistida después de un login administrativo correcto |
 
-### 16.1. Controles implementados
+### 19.3. Respuesta de revalidación: `CheckAuthResponse`
 
-- token Bearer en todas las solicitudes del cliente común;
-- eliminación del token ante fallo de check-status, login fallido y logout;
-- bloqueo de rutas mediante estado de sesión;
-- rechazo del login para roles distintos de PROFESIONAL_ROL;
-- contraseña siempre en input type=password;
-- ausencia de logs de credenciales en el código;
-- bloqueo visual de auto-desactivación y auto-restauración.
+Tiene la misma estructura que `LoginResponse`. Su `token` reemplaza al token persistido antes de que el store termine de actualizar la sesión.
 
-### 16.2. Límites de estos controles
+### 19.4. Cuenta gestionada: `UserResponse`
 
-Las guardas, los botones deshabilitados y la validación de rol son controles del cliente y no sustituyen autorización en el servidor. Un cliente modificado podría invocar los endpoints directamente. El backend debe:
+| Campo | Tipo | Uso en el frontend |
+|---|---|---|
+| `id` | `string` | Rutas, claves de lista, edición y acciones de ciclo de vida |
+| `email` | `string` | Visualización, edición y reconocimiento de propia cuenta en las restricciones de edición |
+| `name` | `string` | Visualización, avatar, formularios y mensajes |
+| `password` | `string` | Parte declarada del contrato TypeScript; el formulario no precarga este valor |
+| `emailVerified` | `boolean` | Badge, filtro indirecto y campo editable |
+| `role` | `PROFESIONAL_ROL \| USER_ROL` | Badge, filtro y campo editable |
+| `isActive` | `boolean` | Badge y habilitación de desactivar/restaurar |
 
-- verificar token, vigencia y rol en cada operación administrativa;
-- impedir por su cuenta operaciones prohibidas;
-- validar todos los cuerpos y parámetros;
-- decidir la semántica y autorización del cambio de rol;
-- no depender de que la interfaz oculte acciones.
+### 19.5. Entrada de creación: `NewUser`
 
-### 16.3. Riesgos o puntos de revisión
+| Campo | Tipo |
+|---|---|
+| `email` | `string` |
+| `name` | `string` |
+| `password` | `string` |
+| `emailVerified` | `boolean` |
+| `role` | `PROFESIONAL_ROL \| USER_ROL` |
 
-1. checkAuthStatus acepta cualquier role devuelto por check-status y establece authenticated.
-2. El token reside en localStorage, por lo que una vulnerabilidad XSS podría exponerlo.
-3. UserResponse declara password como parte de la respuesta; debería confirmarse que la API no devuelve material sensible.
-4. No existe manejo global de 401/403 para limpiar inmediatamente una sesión expirada durante otras operaciones.
-5. VITE_API_URL no se valida en el arranque.
+El estado `isActive` y el `id` no forman parte del cuerpo que el frontend construye para el alta.
 
-## 17. Tecnología, configuración y ejecución
+### 19.6. Respuesta paginada: `UsersResponse`
 
-### 17.1. Stack
+| Campo | Tipo | Relación |
+|---|---|---|
+| `results` | `UserResponse[]` | Agrega cero o más cuentas |
+| `totalPages` | `number` | Controla la paginación |
+| `page` | `number` | Página reportada por la API |
+| `limit` | `number` | Tamaño de página reportado por la API |
+
+### 19.7. Parámetros de listado: `GetAllUsersByPageParams`
+
+Todos los campos son opcionales en la interfaz TypeScript:
+
+- `page?: number`;
+- `limit?: number`;
+- `query?: string`;
+- `rol?: string`;
+- `state?: string`;
+- `emailVerify?: string`.
+
+`useGetUsers` construye la instancia efectiva y siempre incorpora `page` y `limit`.
+
+### 19.8. Valores del formulario: `UserFormValues`
+
+Agrupa los campos compartidos por creación y edición:
+
+- `email`;
+- `emailVerified`;
+- `name`;
+- `password`;
+- `role`.
+
+Los adaptadores `UserCreateForm` y `UserEditForm` convierten estos valores al payload correspondiente a cada operación.
+
+### 19.9. Relaciones del modelo
+
+| Origen | Relación | Destino |
+|---|---|---|
+| `AuthState` | Contiene cero o uno | `UserAuthResponse` |
+| `LoginResponse` | Extiende conceptualmente con token | `UserAuthResponse` |
+| `CheckAuthResponse` | Extiende conceptualmente con token | `UserAuthResponse` |
+| `UsersResponse` | Agrega cero o más | `UserResponse` |
+| `NewUser` | Representa datos de alta de | `UserResponse` |
+| `UserFormValues` | Se adapta a | `NewUser` o `Partial<UserResponse>` |
+
+### 19.10. Esquema general exportado
+
+El archivo de validadores también exporta `userSchema`. Este esquema general declara `id` e `isActive` como opcionales, `password` como opcional con longitud de 6 a 20 cuando está presente, y mantiene las reglas de nombre, rol, correo y `emailVerified`. Los formularios en ejecución seleccionan explícitamente `createUserSchema` o `editUserSchema` según su modo.
+
+## 20. Contrato HTTP consumido
+
+### 20.1. Configuración del cliente
+
+La instancia `mindsaveAPI` se crea con:
+
+```text
+baseURL = VITE_API_URL + "/admin"
+Content-Type = application/json
+```
+
+Antes de cada solicitud, el interceptor lee `localStorage.getItem('token')`. Si obtiene un valor, agrega:
+
+```http
+Authorization: Bearer <token>
+```
+
+### 20.2. Operaciones de autenticación
+
+| Función | Método y ruta relativa | Cuerpo | Respuesta tipada |
+|---|---|---|---|
+| `loginAction` | `POST /auth/login` | `{ email, password }` | `LoginResponse` |
+| `checkAuthAction` | `GET /auth/check-status` | Sin cuerpo | `CheckAuthResponse` |
+
+### 20.3. Operaciones de usuarios
+
+| Función | Método y ruta relativa | Entrada | Resultado usado |
+|---|---|---|---|
+| `getAllUsersByPageAction` | `GET /user` | Query params | `UsersResponse` |
+| `getUserByIdAction` | `GET /user/:id` | `id` en ruta | `UserResponse` |
+| `createUserAction` | `POST /user` | `email`, `password`, `name`, `emailVerified`, `role` | `UserResponse` |
+| `editUserAction` | `PUT /user/:id` | `email`, `password` si está definido, `name`, `emailVerified`, `role` | Devuelve localmente el `id` después de respuesta correcta |
+| `deleteUserAction` | `DELETE /user/:id` | `id` en ruta | No consume cuerpo de respuesta |
+| `restoreUserAction` | `PUT /user/restore-user/:id` | `id` en ruta, sin cuerpo explícito | No consume cuerpo de respuesta |
+
+Todas las rutas de la tabla se resuelven bajo el prefijo `/admin` agregado por el cliente.
+
+### 20.4. Parámetros de `GET /user`
+
+| Parámetro | Tipo enviado | Valores producidos por el frontend |
+|---|---|---|
+| `page` | Número | Entero positivo |
+| `limit` | Número | Entero de 1 a 100 |
+| `query` | Cadena | Texto no vacío de hasta 100 caracteres |
+| `rol` | Cadena | `PROFESIONAL_ROL` o `USER_ROL` |
+| `state` | Cadena | `active` o `inactive` |
+| `emailVerify` | Cadena | `verify` o `unverify` |
+
+### 20.5. Normalización común de errores
+
+Las actions, salvo el tratamiento específico de `checkAuthAction`, utilizan `handleError`.
+
+Para un error de Axios, el mensaje se selecciona en este orden:
+
+1. `response.data.error`;
+2. `response.data.message`;
+3. `error.message`;
+4. mensaje predeterminado entregado por la action.
+
+Si el mensaje es un arreglo, sus elementos se unen con coma. Si es una cadena, se utiliza directamente. Cualquier otro valor se serializa con `JSON.stringify`. Después se lanza un nuevo `Error` que conserva el error original como `cause`.
+
+Para un error no Axios, `handleError` usa el mensaje del objeto `Error` o el texto predeterminado y también conserva la causa.
+
+`checkAuthAction` distingue:
+
+- `401/403`: elimina token y lanza «Token expired or not valid»;
+- otros errores Axios: usa el mensaje de la respuesta, de Axios o «Error de conexión con el servidor»;
+- otros errores: vuelve a lanzarlos.
+
+## 21. Estado, caché y sincronización
+
+### 21.1. Estado local global
+
+Zustand se utiliza exclusivamente para la sesión. El store no persiste automáticamente su estructura; la única persistencia explícita es el token de `localStorage`.
+
+### 21.2. Estado remoto
+
+TanStack Query gestiona:
+
+- comprobación de sesión;
+- listado de usuarios;
+- detalle de usuario;
+- mutaciones de creación, edición, desactivación y restauración.
+
+La aplicación usa una instancia única de `QueryClient`, exportada desde `src/lib/queryClient.ts` y proporcionada en la raíz.
+
+### 21.3. Claves de consulta
+
+| Dato | Query key |
+|---|---|
+| Sesión | `['auth']` |
+| Listado | `['users', { page, limit, query, rol, state, emailVerify }]` |
+| Detalle | `['user', { id }]` |
+
+### 21.4. Invalidaciones
+
+| Mutación | Queries invalidadas |
+|---|---|
+| Crear usuario | Todas las que comienzan por `['users']` |
+| Editar usuario | `['users']` y `['user', { id }]` |
+| Desactivar usuario | `['users']` y `['user', { id: userId }]` |
+| Restaurar usuario | `['users']` y `['user', { id: userId }]` |
+
+Un login administrativo correcto, un error de login y un logout limpian la caché completa en los puntos definidos por el store. Un rechazo global `401/403` también la limpia al ejecutar `logout`.
+
+### 21.5. Estado de URL
+
+La URL es la fuente de estado para:
+
+- página;
+- límite;
+- búsqueda;
+- rol;
+- actividad;
+- verificación de correo.
+
+Los componentes modifican una copia de los parámetros actuales, por lo que los parámetros no afectados permanecen en la URL. La normalización que determina la consulta efectiva ocurre dentro de `useGetUsers`.
+
+## 22. Arquitectura de implementación
+
+### 22.1. Estilo arquitectónico del frontend
+
+La aplicación es una SPA organizada por funcionalidades. Sus capas operativas son:
+
+1. **Arranque y proveedores:** montaje React, Query Client, comprobación de sesión, toaster y router.
+2. **Enrutamiento y guardas:** definición de páginas públicas/privadas y redirecciones.
+3. **Páginas:** composición de cada vista y coordinación de navegación y mensajes.
+4. **Componentes de funcionalidad:** formularios, listado, búsqueda, filtros, paginación y acciones.
+5. **Hooks:** coordinación de URL, queries, mutaciones e invalidaciones.
+6. **Actions:** llamadas HTTP tipadas.
+7. **Cliente API:** base URL, token, interceptores y normalización de errores.
+8. **Estado global:** sesión de Zustand.
+9. **Contratos:** interfaces TypeScript y esquemas Zod.
+10. **Presentación compartida:** estados de carga/error, diálogo, marca y primitivas UI.
+
+### 22.2. Flujo de dependencias
+
+```text
+Interacción del administrador
+        ↓
+Página o componente
+        ↓
+Hook / Auth Store
+        ↓
+Action HTTP
+        ↓
+mindsaveAPI (Axios + interceptores)
+        ↓
+API administrativa de MindSave
+```
+
+Para datos remotos, TanStack Query envuelve el paso entre el hook y la action, almacena el resultado y coordina invalidaciones. Para autenticación, Zustand coordina las actions, el usuario en memoria, el token y el estado consumido por las guardas.
+
+### 22.3. Composición en tiempo de ejecución
+
+La jerarquía principal es:
+
+```text
+React.StrictMode
+└── App
+    └── QueryClientProvider
+        ├── Toaster
+        ├── CheckAuthProvider
+        │   └── AppRouter / RouterProvider
+        └── ReactQueryDevtools
+```
+
+En rutas privadas:
+
+```text
+AuthenticatedRoute
+└── UsersLayout
+    ├── CustomHeader
+    └── Outlet
+        ├── HomePage
+        ├── UsersPage
+        ├── UserPage
+        └── NewUserPage
+```
+
+### 22.4. Responsabilidades por módulo
+
+| Módulo | Responsabilidad |
+|---|---|
+| `src/main.tsx` | Montar React en `#root` dentro de `StrictMode` |
+| `src/App.tsx` | Instalar proveedores, revalidar sesión, montar toaster, router y devtools |
+| `src/router/app.router.tsx` | Declarar árbol de rutas, lazy loading y fallbacks |
+| `src/components/routes/ProtectedRoutes.tsx` | Permitir o redirigir según `authStatus` |
+| `src/api/mindsave.backend.ts` | Configurar Axios, token, rechazo de autorización y errores |
+| `src/auth/actions` | Ejecutar login y comprobación de sesión |
+| `src/auth/store` | Mantener la máquina de estados de autenticación |
+| `src/auth/pages` | Presentar y coordinar el formulario de login |
+| `src/users/pages` | Componer inicio, listado, alta y edición |
+| `src/users/hooks` | Coordinar queries, mutaciones, URL e invalidaciones |
+| `src/users/actions` | Implementar operaciones HTTP de cuentas |
+| `src/users/components` | Implementar UI y comportamiento de gestión |
+| `src/users/interfaces` | Definir DTO de cuentas y respuestas |
+| `src/users/validators` | Definir reglas Zod de alta y edición |
+| `src/users/utils` | Generar el modelo del paginador |
+| `src/components/shared` | Implementar marca, diálogo y páginas de estado |
+| `src/components/ui` | Proveer primitivas estilizadas |
+| `src/index.css` | Definir tokens, tema, tipografía, utilidades y animaciones |
+| `src/lib/queryClient.ts` | Exportar la única instancia de `QueryClient` |
+| `src/lib/utils.ts` | Combinar clases con `clsx` y `tailwind-merge` |
+
+### 22.5. Separación de responsabilidades en los flujos de usuario
+
+| Flujo | Página | Hook/store | Action | Contrato principal |
+|---|---|---|---|---|
+| Login | `LoginPage` | `useAuthStore.login` | `loginAction` | `LoginResponse` |
+| Revalidación | `CheckAuthProvider` | `useAuthStore.checkAuthStatus` | `checkAuthAction` | `CheckAuthResponse` |
+| Listado | `UsersPage` | `useGetUsers` | `getAllUsersByPageAction` | `UsersResponse` |
+| Alta | `NewUserPage` | `useCreateUser` | `createUserAction` | `NewUser`, `UserResponse` |
+| Detalle/edición | `UserPage` | `useGetUserById` | `getUserByIdAction`, `editUserAction` | `UserResponse` |
+| Desactivación | `DeleteUserButton` | `useMutation` local | `deleteUserAction` | `id` |
+| Restauración | `RestoreUserButton` | `useMutation` local | `restoreUserAction` | `id` |
+
+## 23. Interfaz, experiencia y accesibilidad implementadas
+
+### 23.1. Identidad visual activa
+
+La interfaz utiliza un tema oscuro único:
+
+| Elemento | Implementación |
+|---|---|
+| Fondo | `#080f0f` con halo radial teal |
+| Superficie | Tonos `#0f1e1e` y `#0a1818` |
+| Color primario | Teal `#00b2b3` |
+| Hover primario | Teal brillante `#00cacb` |
+| Texto principal | `#d5ecec` |
+| Texto secundario | `#7a9e9e` |
+| Peligro | `#ef4444` |
+| Éxito | `#10b981` |
+| Advertencia | `#f59e0b` |
+| Titulares | Lora |
+| Cuerpo y controles | Inter |
+
+El documento HTML declara `lang="es"`, favicon, viewport y el título «Mindsave Admin».
+
+### 23.2. Primitivas visuales
+
+- `Button` se construye sobre Base UI y ofrece variantes default, outline, secondary, ghost, destructive y link, además de varios tamaños.
+- `Input` se construye sobre la primitiva de Base UI y aplica estados de foco, deshabilitado e inválido.
+- `Label` asocia texto y control mediante HTML estándar.
+- `Card` y sus subcomponentes proveen superficie, cabecera, contenido y pie.
+- `cn` resuelve clases condicionales y conflictos de Tailwind.
+
+### 23.3. Estados compartidos
+
+#### `LoadingPage`
+
+Presenta el logo, mensaje configurable, barra animada y semántica `role=status` con `aria-live=polite`.
+
+#### `ErrorPage`
+
+Presenta el mensaje recibido y dos acciones:
+
+- «Reintentar», que ejecuta `window.location.reload()`;
+- «Ir al inicio», que navega a `/`.
+
+#### Estado vacío
+
+`UserList` presenta icono, título y orientación para cambiar búsqueda o filtros cuando el arreglo está vacío.
+
+### 23.4. Notificaciones
+
+La raíz configura Sonner con:
+
+- tema oscuro;
+- posición superior derecha;
+- colores enriquecidos;
+- botón de cierre;
+- máximo de cuatro toasts visibles;
+- iconos específicos para éxito, error, información, advertencia y carga;
+- offsets diferenciados para escritorio y móvil;
+- etiqueta accesible «Notificaciones».
+
+### 23.5. Accesibilidad
+
+La implementación incorpora:
+
+- etiquetas asociadas con campos y selectores;
+- navegación principal identificada con `aria-label`;
+- nombres accesibles en cierre de sesión, búsqueda, limpieza y paginación;
+- `aria-current=page` en la página seleccionada;
+- `aria-invalid` y mensajes `role=alert` en formularios;
+- `role=search` en el buscador;
+- `role=status` y anuncios corteses durante la carga;
+- `alertdialog` modal con título y descripción asociados;
+- manejo de foco, `Tab`, `Shift+Tab` y `Escape` en confirmaciones;
+- estilos visibles de foco;
+- iconos decorativos con `aria-hidden` en los lugares declarados;
+- controles deshabilitados mientras una operación está pendiente;
+- regla global `prefers-reduced-motion` que lleva el comportamiento CSS de scroll a `auto` y reduce la duración y repetición de animaciones y transiciones.
+
+### 23.6. Adaptación responsive
+
+- el ancho mínimo global es 320 px;
+- el listado alterna tarjetas y tabla en el breakpoint `lg`;
+- el encabezado presenta versiones compactas de marca y texto según ancho;
+- los filtros evolucionan de una a tres columnas;
+- los formularios ajustan padding y apilan acciones en móvil;
+- la paginación oculta etiquetas secundarias en pantallas pequeñas;
+- el toaster usa offsets específicos para móvil.
+
+## 24. Retroalimentación por operación
+
+| Operación | Estado pendiente | Éxito | Fallo o rechazo |
+|---|---|---|---|
+| Comprobar sesión | Página «Comprobando tu sesión» en carga inicial | Acceso a la ruta resuelta | La guarda conduce al estado no autenticado cuando corresponde |
+| Login | Inputs deshabilitados; «Ingresando…» | «Sesión iniciada» | «Acceso no autorizado» o «No pudimos iniciar sesión» |
+| Logout | No aplica | «Sesión cerrada» | No aplica |
+| Listado | «Cargando usuarios» | Tabla, tarjetas o estado vacío | `ErrorPage` |
+| Detalle | «Cargando los datos del usuario» | Formulario precargado | `ErrorPage` |
+| Crear | Formulario deshabilitado; «Creando…» | «Usuario creado» | «No pudimos crear el usuario» |
+| Editar | Formulario deshabilitado; «Guardando…» | «Cambios guardados» | «No pudimos editar el usuario» |
+| Desactivar | «Eliminando…» y diálogo «Procesando…» | «Usuario desactivado» | «No pudimos desactivar el usuario» |
+| Restaurar | «Restaurando…» y diálogo «Procesando…» | «Usuario restaurado» | «No pudimos restaurar el usuario» |
+| Autoedición de rol | No inicia mutación | No aplica | «No puedes cambiar tu rol» |
+| Autoedición de verificación | No inicia mutación | No aplica | «No puedes desverificar tu correo» |
+
+## 25. Tecnología y configuración
+
+### 25.1. Stack declarado
 
 | Área | Tecnología |
 |---|---|
 | UI | React 19 |
 | Lenguaje | TypeScript 6 |
-| Build/dev server | Vite 8 |
-| Router | React Router 8, importado desde react-router |
+| Desarrollo y build | Vite 8 |
+| Compilación React | React Compiler mediante preset de Babel/Rolldown |
+| Enrutamiento | React Router 8, importado desde `react-router` |
 | Estado remoto | TanStack Query 5 |
 | Estado global | Zustand 5 |
 | HTTP | Axios |
 | Formularios | React Hook Form |
-| Esquemas disponibles | Zod 4, no conectado al formulario |
+| Validación | Zod 4 y `@hookform/resolvers` |
 | Notificaciones | Sonner |
-| Iconos | Lucide |
-| Primitivas | Base UI y shadcn base-nova |
-| Estilos | Tailwind CSS 4, tokens en src/index.css |
-| Pruebas | Vitest, jsdom y Testing Library disponible |
+| Iconos | Lucide React |
+| Primitivas | Base UI y componentes shadcn estilo `base-nova` |
+| Estilos | Tailwind CSS 4, `tw-animate-css` y tokens CSS |
+| Pruebas | Vitest con entorno `jsdom`; Testing Library disponible |
 
-### 17.2. Variable de entorno
+### 25.2. Alias y TypeScript
 
-La única variable declarada es:
+El alias `@/*` resuelve `src/*`. TypeScript se configura en modo de resolución `bundler` para la aplicación, con JSX `react-jsx`, `noEmit`, detección forzada de módulos y comprobaciones de símbolos no utilizados, parámetros no utilizados y caídas de `switch`.
 
-**VITE_API_URL=http://localhost:3000**
+### 25.3. Build y partición de dependencias
 
-La plantilla no incluye /admin porque el cliente lo agrega. Un valor de ejemplo produce la base final:
+Vite integra:
 
-**http://localhost:3000/admin**
+- plugin React;
+- preset de React Compiler por medio de Babel/Rolldown;
+- plugin de Tailwind CSS.
 
-El archivo .env está ignorado por Git.
+La configuración de build clasifica dependencias de `node_modules` en chunks manuales:
 
-### 17.3. Scripts
+| Chunk | Dependencias reconocidas por la función |
+|---|---|
+| `react-vendor` | React DOM, React Router y React |
+| `query-vendor` | Paquetes `@tanstack` |
+| `form-vendor` | Zod, React Hook Form y resolvers |
+| `ui-vendor` | Lucide React y Sonner |
+
+Las páginas y el layout también quedan sujetos a carga diferida por ruta mediante `React.lazy`.
+
+### 25.4. Variable de entorno
+
+La plantilla declara:
+
+```dotenv
+VITE_API_URL=http://localhost:3000
+```
+
+El valor representa la URL base previa a `/admin`. Con el ejemplo de la plantilla, Axios usa `http://localhost:3000/admin` como base efectiva.
+
+### 25.5. Scripts
 
 | Comando | Función |
 |---|---|
-| npm ci | Instalar exactamente package-lock.json |
-| npm run dev | Iniciar Vite |
-| npm run lint | Ejecutar ESLint |
-| npm test -- --run | Ejecutar Vitest una vez |
-| npm run build | Comprobar TypeScript y construir producción |
-| npm run preview | Servir el build local |
+| `npm ci` | Instalar las versiones resueltas por `package-lock.json` |
+| `npm run dev` | Iniciar el servidor de desarrollo de Vite |
+| `npm run lint` | Ejecutar ESLint sobre el proyecto |
+| `npm test -- --run` | Ejecutar Vitest una vez |
+| `npm run build` | Ejecutar el build de TypeScript y Vite |
+| `npm run preview` | Servir localmente el artefacto construido |
 
-### 17.4. Consideraciones de despliegue
+### 25.6. Artefactos y ejecución
 
-- createBrowserRouter requiere que el servidor entregue index.html para rutas como /users/:id.
-- la SPA requiere acceso de red a VITE_API_URL.
-- las fuentes se cargan desde Google Fonts; una política CSP o red cerrada debe contemplarlo.
-- no existe configuración de despliegue, contenedor, CI/CD ni proxy en el repositorio.
+- `index.html` contiene el nodo `#root` y carga `src/main.tsx` como módulo.
+- `public/favicon.png` se usa como favicon y marca visual dentro de la aplicación.
+- `dist/` es la salida generada por Vite.
+- `node_modules/` contiene dependencias instaladas.
+- `tailwind.config.js` está vacío; el tema activo se define en `src/index.css`.
+- `components.json` configura el registro shadcn con estilo `base-nova`, TSX, variables CSS e iconos Lucide.
 
-## 18. Pruebas y estado verificado
+## 26. Pruebas presentes
 
-### 18.1. Cobertura presente
+Vitest está configurado en `vite.config.ts` con:
 
-tests/app.test.tsx solo verifica que 1 + 1 sea 2. Confirma que Vitest puede arrancar, pero no prueba:
+- entorno `jsdom`;
+- globals habilitados.
 
-- autenticación;
-- guardas;
-- actions HTTP;
-- roles;
-- formularios;
-- filtros;
-- paginación;
-- caché;
-- desactivación/restauración;
-- componentes.
+El archivo `tests/app.test.tsx` contiene una prueba de ejecución básica que afirma que `1 + 1` es `2`. La prueba actual no instancia componentes ni realiza solicitudes; su comportamiento verificable es confirmar la ejecución elemental del runner.
 
-Testing Library y axios-mock-adapter están instalados, pero no se usan en la prueba actual.
+## 27. Insumos estructurados para casos de uso y UML
 
-### 18.2. Verificación realizada durante este análisis
+Esta sección organiza los elementos ya descritos para facilitar su transformación posterior sin agregar comportamiento distinto al código.
 
-| Comprobación | Resultado |
-|---|---|
-| npm run lint | Correcto |
-| npm test -- --run | 1 archivo, 1 prueba, correcto |
-| npm run build | Correcto |
-| Tamaño JS construido | 536,70 kB minificado; 171,82 kB gzip |
-| Advertencia de build | Chunk principal superior a 500 kB |
+### 27.1. Actor y casos de uso
 
-Estas comprobaciones demuestran consistencia estática y capacidad de build, no corrección funcional contra un backend real.
+**Actor principal:** Administrador.
 
-## 19. Brechas, inconsistencias y decisiones pendientes
-
-### 19.1. Alta prioridad
-
-#### B-01. Revalidación sin control de rol
-
-El login exige PROFESIONAL_ROL, pero checkAuthStatus autentica cualquier rol que reciba. Un token válido de USER_ROL podría habilitar la interfaz si el backend devuelve ese rol. La regla debe ser coherente en ambos flujos y, obligatoriamente, reforzada por el backend.
-
-#### B-02. Contrato de respuesta con password
-
-UserResponse incluye password. Aunque la UI no lo muestra, el contrato debería confirmar que el servidor no devuelve hashes ni credenciales.
-
-#### B-03. Ausencia de pruebas funcionales
-
-Los flujos críticos carecen de regresión automatizada. Para documentar garantías reales de negocio se necesitan pruebas de guards, roles, token, parámetros, validaciones e invalidación.
-
-### 19.2. Prioridad media
-
-#### B-04. Caché de detalle después de desactivar/restaurar
-
-Estas operaciones solo invalidan ["users"]. Un detalle previamente cacheado puede conservar isActive durante su ventana de frescura.
-
-#### B-05. Dos fuentes potenciales de validación
-
-Existe un esquema Zod sin uso y reglas distintas en React Hook Form. Mantener ambos puede producir divergencia si alguien comienza a usar el esquema parcialmente.
-
-#### B-06. Parámetros numéricos parcialmente validados
-
-Se rechazan NaN y valores menores que 1, pero no decimales. La consulta tampoco ajusta una page superior al total antes de llamar al backend.
-
-#### B-07. Expiración fuera de check-status
-
-No hay interceptor de respuesta ni coordinación para cerrar sesión inmediatamente ante un 401/403 de usuarios.
-
-#### B-08. Semántica DELETE/desactivación
-
-El frontend presenta DELETE como operación reversible. El contrato backend debe confirmar si se trata de soft delete, cambio de bandera u otra estrategia.
-
-### 19.3. Mantenibilidad y experiencia
-
-#### B-09. Retornos inalcanzables en actions
-
-Las actions devuelven null o datos vacíos después de handleError, aunque handleError siempre lanza.
-
-#### B-10. Búsqueda no totalmente sincronizada con URL externa
-
-SearchBar usa defaultValue. Navegar entre historiales con distintos query puede cambiar la consulta sin actualizar el texto visible del input en todos los escenarios.
-
-#### B-11. Accesibilidad modal incompleta
-
-El diálogo tiene buena semántica inicial, pero no encierra el foco ni lo restaura al disparador.
-
-#### B-12. Documentación de instalación obsoleta
-
-README.md sigue siendo el texto de plantilla de Vite y no explica MindSave Admin.
-
-#### B-13. Bundle único grande
-
-Las páginas se importan de forma estática y el build genera un chunk JS que supera el umbral de 500 kB.
-
-#### B-14. Fuentes redundantes
-
-index.html carga Lora e Inter y además Outfit, Source Sans 3 e Instrument Serif. index.css vuelve a importar Lora e Inter. Las tres fuentes adicionales no forman parte del sistema visual observado.
-
-#### B-15. Modo claro solo documental
-
-El sistema de diseño menciona modo claro, pero la aplicación fuerza color-scheme dark y no implementa cambio de tema.
-
-## 20. Insumos para diagramas UML
-
-### 20.1. Diagrama de casos de uso
-
-Actor principal:
-
-- Administrador.
-
-Casos:
-
-- iniciar sesión;
-- cerrar sesión;
-- consultar inicio;
-- listar usuarios;
-- buscar usuarios;
-- filtrar usuarios;
-- paginar usuarios;
-- crear usuario;
-- consultar detalle;
-- editar usuario;
-- desactivar usuario;
-- restaurar usuario.
-
-Relaciones sugeridas:
-
-- “Listar usuarios” incluye “Aplicar parámetros de URL”.
-- “Buscar”, “Filtrar” y “Paginar” extienden “Listar usuarios”.
-- “Editar usuario” incluye “Consultar detalle”.
-- “Desactivar usuario” y “Restaurar usuario” incluyen “Confirmar acción”.
-- todas las operaciones privadas incluyen “Verificar sesión”.
-- “Crear” y “Editar” incluyen “Validar formulario”.
-
-### 20.2. Diagrama de clases o modelo estático
-
-Aunque el código usa funciones y hooks más que clases, el modelo puede representar:
-
-#### Entidades/DTO
-
-- UserAuthResponse;
-- LoginResponse;
-- CheckAuthResponse;
-- UserResponse;
-- NewUser;
-- UsersResponse;
-- GetAllUsersByPageParams;
-- UserFormValues.
-
-#### Relaciones
-
-- LoginResponse y CheckAuthResponse contienen los datos de UserAuthResponse más token.
-- UsersResponse agrega cero o más UserResponse.
-- NewUser representa el subconjunto necesario para crear UserResponse.
-- UserFormValues coincide con los campos editables.
-- AuthState contiene cero o un UserAuthResponse y cero o un token.
-
-#### Servicios/controladores de frontend
-
-- AuthStore: login, logout, checkAuthStatus.
-- AuthActions: loginAction, checkAuthAction.
-- UserActions: getAllUsersByPageAction, getUserByIdAction, createUserAction, editUserAction, deleteUserAction, restoreUserAction.
-- UserQueries: useGetUsers, useGetUserById, useCreateUser.
-- MindsaveAPI: interceptor de autenticación y operaciones HTTP.
-
-### 20.3. Diagrama de estados de sesión
-
-Estados:
-
-- checking;
-- authenticated;
-- not-authenticated.
-
-Transiciones:
-
-| Origen | Evento/condición | Destino |
+| Caso | Objetivo del actor | Dependencias funcionales |
 |---|---|---|
-| Inicio | Store creado | checking |
-| checking | check-status correcto | authenticated |
-| checking | sin token o check-status fallido | not-authenticated |
-| not-authenticated | login correcto y rol admitido | authenticated |
-| not-authenticated | login fallido o rol no admitido | not-authenticated |
-| authenticated | logout | not-authenticated |
-| authenticated | refetch check-status fallido | not-authenticated |
-| authenticated | refetch check-status correcto | authenticated con token renovado |
+| Iniciar sesión | Acceder al panel | Validar credenciales y rol; establecer sesión |
+| Cerrar sesión | Finalizar el acceso local | Eliminar token y caché |
+| Consultar inicio | Acceder a las operaciones principales | Mantener sesión autenticada |
+| Listar usuarios | Ver cuentas registradas | Aplicar URL, consultar API y presentar resultados |
+| Buscar usuarios | Acotar el listado por texto | Actualizar `query`; reiniciar página |
+| Filtrar usuarios | Acotar por correo, rol o actividad | Actualizar filtros; reiniciar página |
+| Paginar usuarios | Navegar entre páginas | Actualizar `page`; conservar demás parámetros |
+| Crear usuario | Registrar una cuenta | Validar formulario; enviar alta; invalidar listado |
+| Consultar detalle | Obtener datos editables | Resolver `id`; consultar API |
+| Editar usuario | Actualizar una cuenta | Cargar detalle; validar; aplicar restricciones propias; invalidar caché |
+| Desactivar usuario | Suspender una cuenta activa | Verificar disponibilidad; confirmar; ejecutar DELETE |
+| Restaurar usuario | Recuperar una cuenta inactiva | Verificar disponibilidad; confirmar; ejecutar PUT |
 
-### 20.4. Diagrama de estados de cuenta
+### 27.2. Relaciones funcionales derivables
 
-Estados visibles:
+- «Buscar usuarios», «Filtrar usuarios» y «Paginar usuarios» operan sobre «Listar usuarios».
+- «Editar usuario» utiliza previamente «Consultar detalle».
+- «Crear usuario» y «Editar usuario» utilizan «Validar formulario».
+- «Desactivar usuario» y «Restaurar usuario» utilizan «Confirmar acción».
+- Todos los casos alojados en el layout privado dependen de una sesión con estado `authenticated`.
+- Todas las actions HTTP utilizan el cliente Axios compartido.
+- Todas las solicitudes del cliente compartido dependen de la configuración de `VITE_API_URL`.
 
-- Activa;
-- Inactiva.
+### 27.3. Participantes para diagramas de secuencia
 
-Transiciones:
+#### Inicio de sesión
 
-- Activa → Inactiva: confirmación y DELETE /user/:id.
-- Inactiva → Activa: confirmación y PUT /user/restore-user/:id.
+```text
+Administrador
+→ LoginPage
+→ AuthStore
+→ loginAction
+→ mindsaveAPI / interceptor
+→ API MindSave
+→ AuthStore / localStorage / QueryClient
+→ Toaster
+→ Router
+```
 
-Restricción:
+Ramas presentes: rol administrativo, rol no administrativo y error de solicitud.
 
-- si la cuenta corresponde al actor autenticado, ambas transiciones se bloquean en la interfaz.
+#### Revalidación
 
-El estado inicial al crear no está expresado en NewUser; queda a cargo del backend.
+```text
+App / CheckAuthProvider
+→ React Query
+→ AuthStore
+→ localStorage
+→ checkAuthAction
+→ mindsaveAPI / interceptor
+→ API MindSave
+→ localStorage / AuthStore
+→ Guardas
+```
 
-### 20.5. Diagramas de secuencia
+Ramas presentes: sin token, respuesta administrativa, respuesta con otro rol, `401/403` y error de conectividad o servidor.
 
-#### Secuencia de login
+#### Listado
 
-1. Administrador → LoginPage: envía credenciales.
-2. LoginPage → AuthStore: login(email, password).
-3. AuthStore → loginAction.
-4. loginAction → mindsaveAPI.
-5. mindsaveAPI → Backend: POST /auth/login.
-6. Backend → loginAction: LoginResponse o error.
-7. AuthStore → AuthStore: valida role.
-8. AuthStore → localStorage: guarda token.
-9. LoginPage → Toaster: comunica éxito.
-10. LoginPage → Router: navega a /.
+```text
+Administrador
+→ UsersPage
+→ useGetUsers
+→ URLSearchParams
+→ TanStack Query
+→ getAllUsersByPageAction
+→ mindsaveAPI / interceptor
+→ API MindSave
+→ Query Cache
+→ UserList / CustomPagination
+```
 
-Agregar ramas para rol no admitido y error HTTP.
+#### Creación
 
-#### Secuencia de consulta de usuarios
+```text
+Administrador
+→ UserForm
+→ React Hook Form / Zod
+→ NewUserPage
+→ useCreateUser
+→ createUserAction
+→ API MindSave
+→ QueryClient.invalidateQueries
+→ Toaster
+→ Router
+```
 
-1. Administrador → Router: abre /users con parámetros.
-2. UsersPage → useGetUsers.
-3. useGetUsers → URLSearchParams: lee estado.
-4. useGetUsers → React Query: consulta por clave compuesta.
-5. React Query → getAllUsersByPageAction.
-6. Action → mindsaveAPI.
-7. Interceptor → localStorage: obtiene token.
-8. mindsaveAPI → Backend: GET /user.
-9. Backend → React Query: UsersResponse.
-10. UsersPage → UserList/Pagination: renderiza.
+#### Edición
 
-#### Secuencia de edición
+```text
+Router(id)
+→ UserPage
+→ useGetUserById
+→ getUserByIdAction
+→ API MindSave
+→ UserEditForm
+→ React Hook Form / Zod
+→ Restricciones de propia cuenta
+→ editUserAction
+→ API MindSave
+→ QueryClient.invalidateQueries
+→ Toaster
+→ Router
+```
 
-1. UserPage obtiene id del router.
-2. useGetUserById solicita GET /user/:id.
-3. UserEditForm presenta valores.
-4. Administrador envía cambios.
-5. UserEditForm omite password vacío.
-6. UserPage agrega id.
-7. Mutación envía PUT /user/:id.
-8. React Query invalida lista y detalle.
-9. Toaster comunica éxito.
-10. Router navega a /users.
+#### Desactivación o restauración
 
-#### Secuencia de desactivación/restauración
+```text
+Administrador
+→ DeleteUserButton / RestoreUserButton
+→ ConfirmDialog
+→ useMutation
+→ Action correspondiente
+→ API MindSave
+→ QueryClient.invalidateQueries
+→ Toaster
+```
 
-1. Administrador pulsa acción.
-2. Botón abre ConfirmDialog.
-3. Administrador confirma.
-4. Mutación invoca action.
-5. Action envía DELETE o PUT.
-6. React Query invalida lista.
-7. Toaster comunica resultado.
-8. Diálogo se cierra en éxito.
+### 27.4. Nodos para diagramas de actividad
 
-### 20.6. Diagramas de actividad
+#### Actividad de autenticación
 
-Nodos de decisión importantes:
+- iniciar aplicación;
+- comprobar existencia del token;
+- enviar `check-status`;
+- evaluar respuesta HTTP;
+- evaluar rol;
+- establecer sesión autenticada o no autenticada;
+- resolver la guarda de navegación.
 
-- ¿Existe token?
-- ¿check-status fue correcto?
-- ¿role es PROFESIONAL_ROL?
-- ¿la ruta exige autenticación?
-- ¿la lista está cargando, falló, está vacía o contiene resultados?
-- ¿el formulario es válido?
-- ¿la edición contiene contraseña?
-- ¿la cuenta objetivo es la cuenta autenticada?
-- ¿la cuenta está activa o inactiva?
-- ¿el administrador confirma o cancela?
-- ¿la mutación tuvo éxito?
+#### Actividad de listado
 
-### 20.7. Diagrama de componentes
+- leer URL;
+- normalizar página, límite, búsqueda y filtros;
+- construir query key y parámetros HTTP;
+- consultar usuarios;
+- evaluar carga, error, vacío o resultados;
+- presentar tabla/tarjetas;
+- permitir búsqueda, filtrado o cambio de página.
 
-Componentes sugeridos:
+#### Actividad de formulario
 
-- Browser;
-- React SPA;
-- Router;
-- Auth feature;
-- Users feature;
-- Zustand Auth Store;
-- TanStack Query Cache;
-- Axios API Client;
-- localStorage;
-- MindSave Admin API;
-- Sonner Notifications;
-- Design System/UI primitives.
+- cargar valores iniciales;
+- capturar cambios;
+- validar con el esquema del modo;
+- en edición, adaptar contraseña vacía;
+- en edición propia, evaluar rol y verificación;
+- enviar mutación;
+- evaluar éxito o fallo;
+- invalidar caché, notificar y navegar en éxito.
 
-Conectores:
+#### Actividad de ciclo de cuenta
 
-- Router usa Auth Store para decidir acceso.
-- Auth y Users usan Axios API Client.
-- Axios API Client lee localStorage.
-- Users usa TanStack Query Cache.
-- Pages usan Notifications y Router.
-- React SPA se comunica por HTTPS/HTTP JSON con MindSave Admin API.
+- determinar si la cuenta es propia;
+- determinar si está activa;
+- habilitar desactivación o restauración;
+- abrir confirmación;
+- cancelar o confirmar;
+- bloquear controles durante la solicitud;
+- ejecutar action;
+- notificar resultado;
+- invalidar lista y detalle en éxito.
 
-## 21. Trazabilidad entre funcionalidad y código
+### 27.5. Elementos para diagrama de componentes
 
-| Área | Archivos principales |
+| Componente | Interfaces o dependencias relevantes |
 |---|---|
-| Arranque | src/main.tsx, src/App.tsx |
-| Router | src/router/app.router.tsx |
-| Guardas | src/components/routes/ProtectedRoutes.tsx |
-| Cliente API | src/api/mindsave.backend.ts |
-| Autenticación HTTP | src/auth/actions/login.action.ts, src/auth/actions/check-auth.action.ts |
-| Sesión | src/auth/store/auth.store.ts |
-| Login | src/auth/pages/LoginPage.tsx |
-| Contratos de autenticación | src/auth/interfaces |
-| Listado | src/users/pages/UsersPage.tsx, src/users/components/UserList.tsx |
-| Búsqueda | src/users/components/SearchBar.tsx |
-| Filtros | src/users/components/UserFilters.tsx |
-| Paginación | src/users/components/CustomPagination.tsx, src/users/utils/pagination.ts |
-| Alta | src/users/pages/NewUserPage.tsx, src/users/components/UserCreateForm.tsx |
-| Detalle/edición | src/users/pages/UserPage.tsx, src/users/components/UserEditForm.tsx |
-| Formulario compartido | src/users/components/UserForm.tsx |
-| Desactivación | src/users/components/DeleteUserButton.tsx |
-| Restauración | src/users/components/RestoreUserButton.tsx |
-| Confirmación | src/components/shared/ConfirmDialog.tsx |
-| Queries/mutaciones | src/users/hooks |
-| HTTP de usuarios | src/users/actions |
-| Contratos de usuarios | src/users/interfaces |
-| Estados compartidos | src/components/shared/LoadingPage.tsx, src/components/shared/ErrorPage.tsx |
-| Primitivas visuales | src/components/ui |
-| Sistema visual | src/index.css, skills/DESIGN_SYSTEM.md |
-| Configuración | package.json, vite.config.ts, tsconfig.app.json, eslint.config.js |
-| Pruebas | tests/app.test.tsx |
+| React SPA | Router, providers y árbol de páginas |
+| Router | Guardas, layout, páginas y parámetros de URL |
+| Auth Feature | Store, actions, contratos y login |
+| Users Feature | Páginas, hooks, actions, componentes, interfaces y validadores |
+| Zustand Auth Store | Sesión, `localStorage`, Query Client y auth actions |
+| TanStack Query | Query functions, cache e invalidaciones |
+| Axios API Client | `VITE_API_URL`, `localStorage`, interceptores y API externa |
+| UI compartida | Primitivas, marca, carga, error y diálogo |
+| Sonner | Eventos de éxito, fallo y rechazo local |
+| API administrativa | Endpoints `/admin/auth/*` y `/admin/user/*` consumidos |
 
-## 22. Requisitos no demostrables desde este repositorio
+### 27.6. Elementos para diagrama estático
 
-Para completar una especificación del sistema total se necesita documentación o código del backend que confirme:
+Los elementos de datos son:
 
-- códigos HTTP y forma exacta de errores por endpoint;
-- expiración, firma, revocación y claims del token;
-- autorización servidor para PROFESIONAL_ROL;
-- unicidad y normalización de email;
-- reglas adicionales de contraseña;
-- significado persistente de isActive;
-- semántica real de DELETE /user/:id;
-- valor inicial de isActive;
-- posibilidad de editar o desactivar administradores;
-- ordenamiento del listado;
-- algoritmo de búsqueda;
-- límites máximos de page y limit;
-- estructura de persistencia y relaciones de base de datos;
-- auditoría de operaciones administrativas;
-- concurrencia y resolución de ediciones simultáneas.
+- `AuthState`;
+- `UserAuthResponse`;
+- `LoginResponse`;
+- `CheckAuthResponse`;
+- `UserResponse`;
+- `UsersResponse`;
+- `NewUser`;
+- `UserFormValues`;
+- `GetAllUsersByPageParams`;
+- `PaginationItem`.
 
-Estos puntos no deben inventarse al producir diagramas UML o casos de uso del sistema completo. Deben marcarse como dependencias de contrato hasta obtener la especificación del backend.
+Los elementos con comportamiento son:
 
-## 23. Glosario
+- `AuthStore` con `login`, `logout` y `checkAuthStatus`;
+- `mindsaveAPI` con interceptores de solicitud y respuesta;
+- actions de autenticación;
+- actions de usuarios;
+- hooks de consulta y mutación;
+- componentes de página y de interacción.
 
-| Término | Definición en este proyecto |
+### 27.7. Máquina de estados de cuenta
+
+La interfaz representa dos estados:
+
+```text
+Activa --confirmar desactivación / DELETE--> Inactiva
+Inactiva --confirmar restauración / PUT----> Activa
+```
+
+Para la cuenta del administrador autenticado, las dos acciones se presentan como protegidas y permanecen deshabilitadas.
+
+## 28. Trazabilidad entre funcionalidad y código
+
+| Funcionalidad o área | Archivos principales |
 |---|---|
-| Administrador | Cuenta cuyo rol literal es PROFESIONAL_ROL |
-| Usuario | Cuenta gestionada; puede ser USER_ROL o PROFESIONAL_ROL |
-| Desactivar | Resultado que la UI atribuye a DELETE /user/:id |
-| Restaurar | Recuperar una cuenta mediante PUT /user/restore-user/:id |
-| Sesión | Estado local derivado de token, user y authStatus |
-| Query key | Identificador estructurado usado por TanStack Query |
-| Estado de URL | Parámetros que representan búsqueda, filtros y paginación |
-| Action | Función que concentra una llamada HTTP |
-| Hook | Función React que coordina query, mutación o datos de la URL |
-| Guarda | Componente que permite o redirige una ruta según authStatus |
+| Arranque de la SPA | `src/main.tsx`, `src/App.tsx` |
+| Router y carga diferida | `src/router/app.router.tsx` |
+| Guardas | `src/components/routes/ProtectedRoutes.tsx` |
+| Cliente HTTP y errores | `src/api/mindsave.backend.ts` |
+| Query Client | `src/lib/queryClient.ts` |
+| Autenticación HTTP | `src/auth/actions/login.action.ts`, `src/auth/actions/check-auth.action.ts` |
+| Estado de sesión | `src/auth/store/auth.store.ts` |
+| Login | `src/auth/pages/LoginPage.tsx` |
+| Contratos de autenticación | `src/auth/interfaces/*` |
+| Layout y navegación privada | `src/users/layout/UsersLayout.tsx`, `src/users/components/CustomHeader.tsx` |
+| Inicio | `src/users/pages/HomePage.tsx` |
+| Listado | `src/users/pages/UsersPage.tsx`, `src/users/components/UserList.tsx` |
+| Búsqueda | `src/users/components/SearchBar.tsx` |
+| Filtros | `src/users/components/UserFilters.tsx` |
+| Paginación | `src/users/components/CustomPagination.tsx`, `src/users/utils/pagination.ts` |
+| Alta | `src/users/pages/NewUserPage.tsx`, `src/users/components/UserCreateForm.tsx`, `src/users/hooks/useCreateUser.ts` |
+| Detalle y edición | `src/users/pages/UserPage.tsx`, `src/users/components/UserEditForm.tsx`, `src/users/hooks/useGetUserById.ts` |
+| Formulario común | `src/users/components/UserForm.tsx` |
+| Validación | `src/users/validators/userValidator.ts` |
+| Consulta de listado | `src/users/hooks/useGetUsers.ts`, `src/users/actions/getAllUserByPage.action.ts` |
+| Actions de cuentas | `src/users/actions/*` |
+| Contratos de cuentas | `src/users/interfaces/*` |
+| Desactivación | `src/users/components/DeleteUserButton.tsx`, `src/users/actions/deleteUser.action.ts` |
+| Restauración | `src/users/components/RestoreUserButton.tsx`, `src/users/actions/restoreUser.action.ts` |
+| Confirmación | `src/components/shared/ConfirmDialog.tsx` |
+| Carga, error y marca | `src/components/shared/*` |
+| Primitivas | `src/components/ui/*` |
+| Tema y estilos | `src/index.css`, `skills/DESIGN_SYSTEM.md` |
+| Configuración de build | `vite.config.ts`, `tsconfig*.json`, `package.json` |
+| Configuración shadcn | `components.json` |
+| Prueba presente | `tests/app.test.tsx` |
+
+## 29. Límite documental del repositorio
+
+Los siguientes aspectos pertenecen a la API o a su persistencia y no están definidos por el código de este repositorio:
+
+- estructura de base de datos;
+- algoritmo de autenticación y emisión del token;
+- reglas internas de expiración o revocación;
+- algoritmo concreto de coincidencia de `query`;
+- ordenamiento aplicado al listado;
+- transformación persistente realizada por `DELETE /user/:id`;
+- generación del `id` y del estado activo inicial;
+- reglas servidor adicionales sobre correo, contraseña, roles o verificación;
+- formato completo de todas las respuestas de error;
+- auditoría de operaciones administrativas.
+
+Esta especificación representa esos elementos únicamente mediante los contratos que el frontend consume o produce.
+
+## 30. Glosario
+
+| Término | Significado dentro de MindSave Admin |
+|---|---|
+| Administrador | Cuenta cuya sesión aceptada contiene `PROFESIONAL_ROL` |
+| Cuenta gestionada | Usuario mostrado y mantenido desde el panel |
+| Desactivar | Operación presentada por la UI al ejecutar `DELETE /user/:id` |
+| Restaurar | Operación que ejecuta `PUT /user/restore-user/:id` sobre una cuenta inactiva |
+| Sesión | Combinación de `user`, `token` y `authStatus` mantenida por Zustand |
+| Action | Función que encapsula una llamada HTTP |
+| Hook | Función React que coordina queries, mutaciones o estado de URL |
+| Query key | Identificador estructurado de un dato remoto en TanStack Query |
+| Invalidación | Marcación de queries para actualización después de una mutación |
+| Guarda | Componente que permite contenido o redirige según `authStatus` |
+| Estado de URL | Búsqueda, filtros, límite y página expresados como query parameters |
+| Payload | Objeto enviado como cuerpo o parámetros de una solicitud |
+| AS-IS | Comportamiento implementado actualmente, sin proyección futura |
